@@ -11,3 +11,32 @@ export function shuffle<T>(array: T[]): T[] {
   }
   return result;
 }
+
+/**
+ * Format duration in seconds to human-readable string.
+ * Examples: "45s", "3m 20s", "2h 15m"
+ */
+export function formatDuration(seconds: number): string {
+  if (seconds < 60) {
+    return `${seconds}s`;
+  } else if (seconds < 3600) {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return secs > 0 ? `${mins}m ${secs}s` : `${mins}m`;
+  } else {
+    const hours = Math.floor(seconds / 3600);
+    const mins = Math.floor((seconds % 3600) / 60);
+    return mins > 0 ? `${hours}h ${mins}m` : `${hours}h`;
+  }
+}
+
+/**
+ * Format duration in seconds to timer format (M:SS or H:MM:SS).
+ * Returns "--:--" for null/undefined values.
+ */
+export function formatTimerDuration(seconds: number | null | undefined): string {
+  if (seconds == null) return "--:--";
+  const mins = Math.floor(seconds / 60);
+  const secs = seconds % 60;
+  return `${mins}:${secs.toString().padStart(2, "0")}`;
+}

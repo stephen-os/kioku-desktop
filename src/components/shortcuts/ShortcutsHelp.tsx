@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useShortcuts } from "@/context/ShortcutsContext";
 import { ShortcutHint } from "./ShortcutHint";
 
@@ -9,6 +9,17 @@ import { ShortcutHint } from "./ShortcutHint";
 export function ShortcutsHelp() {
   const { showHelp, setShowHelp, getShortcutGroups } = useShortcuts();
   const groups = getShortcutGroups();
+  const previousFocusRef = useRef<HTMLElement | null>(null);
+
+  // Store focused element when opening and restore when closing
+  useEffect(() => {
+    if (showHelp) {
+      previousFocusRef.current = document.activeElement as HTMLElement;
+    } else if (previousFocusRef.current) {
+      previousFocusRef.current.focus();
+      previousFocusRef.current = null;
+    }
+  }, [showHelp]);
 
   // Close on Escape
   useEffect(() => {

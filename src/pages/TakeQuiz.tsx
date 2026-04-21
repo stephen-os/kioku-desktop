@@ -69,6 +69,23 @@ export function TakeQuiz() {
     };
   }, [id]);
 
+  // Warn users when leaving mid-quiz
+  useEffect(() => {
+    const hasStarted = attemptId !== null && !loading;
+    const hasAnswers = Object.keys(answers).length > 0;
+
+    if (!hasStarted || !hasAnswers) return;
+
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "";
+      return "";
+    };
+
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, [attemptId, loading, answers]);
+
   const handleSelectChoice = useCallback((questionId: string, choiceId: string, multipleAnswers: boolean) => {
     setAnswers(prev => {
       if (multipleAnswers) {

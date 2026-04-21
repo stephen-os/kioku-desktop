@@ -6,6 +6,7 @@ import { getQuiz, getQuizAttempt } from "@/lib/db";
 import { CodeBlock } from "@/components/CodeEditor";
 import { BackButton } from "@/components";
 import { useToast } from "@/context/ToastContext";
+import { formatTimerDuration } from "@/lib/utils";
 
 export function QuizResults() {
   const { id, attemptId } = useParams<{ id: string; attemptId: string }>();
@@ -35,13 +36,6 @@ export function QuizResults() {
     }
     loadResults();
   }, [id, attemptId, toast]);
-
-  const formatDuration = (seconds: number | null) => {
-    if (!seconds) return "--:--";
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    return `${mins}:${secs.toString().padStart(2, "0")}`;
-  };
 
   const getScoreColor = (score: number) => {
     if (score >= 80) return "text-[#a9dc76]";
@@ -343,7 +337,7 @@ export function QuizResults() {
             </div>
             <div className="bg-[#403e41] rounded-xl border border-[#5b595c] p-6 text-center">
               <div className="text-3xl font-bold text-[#78dce8] font-mono">
-                {formatDuration(attempt.durationSeconds)}
+                {formatTimerDuration(attempt.durationSeconds)}
               </div>
               <div className="text-sm text-[#939293] mt-1">Time</div>
             </div>

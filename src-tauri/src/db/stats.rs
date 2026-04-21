@@ -140,8 +140,10 @@ fn grade_answer(conn: &Connection, question_id: &str, user_answer: &str) -> Resu
 
     match question_type.as_str() {
         "fill_in_blank" => {
-            // Exact match for fill-in-blank
-            Ok(correct_answer.as_deref() == Some(user_answer))
+            // Case-insensitive match for fill-in-blank, trimming whitespace
+            let user_trimmed = user_answer.trim().to_lowercase();
+            let correct_trimmed = correct_answer.as_deref().map(|s| s.trim().to_lowercase());
+            Ok(correct_trimmed.as_deref() == Some(user_trimmed.as_str()))
         }
         "multiple_choice" => {
             // Get correct choice IDs
@@ -155,8 +157,12 @@ fn grade_answer(conn: &Connection, question_id: &str, user_answer: &str) -> Resu
                 .collect::<Result<Vec<_>, _>>()
                 .map_err(|e| format!("Failed to collect choices: {}", e))?;
 
-            // Parse user's answer (comma-separated choice IDs)
-            let mut user_ids: Vec<&str> = user_answer.split(',').map(|s| s.trim()).collect();
+            // Parse user's answer (comma-separated choice IDs), filtering empty strings
+            let mut user_ids: Vec<&str> = user_answer
+                .split(',')
+                .map(|s| s.trim())
+                .filter(|s| !s.is_empty())
+                .collect();
             user_ids.sort();
 
             let mut correct_sorted = correct_ids.clone();

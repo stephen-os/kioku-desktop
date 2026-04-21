@@ -100,16 +100,12 @@ function findVoice(voiceId: string): SpeechSynthesisVoice | null {
  */
 export function speak(text: string, options: SynthesizeOptions): Promise<void> {
   return new Promise((resolve, reject) => {
-    console.log("[TTS] speak called with:", { text: text.substring(0, 50), voice: options.voice, volume: options.volume });
-
     if (!isSpeechSynthesisAvailable) {
-      console.error("[TTS] Speech synthesis not available");
       reject(new Error("Speech synthesis not available"));
       return;
     }
 
     if (!text.trim()) {
-      console.log("[TTS] Empty text, resolving immediately");
       resolve();
       return;
     }
@@ -121,7 +117,6 @@ export function speak(text: string, options: SynthesizeOptions): Promise<void> {
 
     // Set voice if specified
     const voice = findVoice(options.voice);
-    console.log("[TTS] Found voice:", voice?.name || "using default system voice");
     if (voice) {
       utterance.voice = voice;
     }
@@ -130,7 +125,6 @@ export function speak(text: string, options: SynthesizeOptions): Promise<void> {
     utterance.rate = options.rate ?? 1;
     utterance.pitch = options.pitch ?? 1;
     utterance.volume = options.volume ?? 1;
-    console.log("[TTS] Utterance settings:", { rate: utterance.rate, pitch: utterance.pitch, volume: utterance.volume });
 
     // Track if we've already resolved/rejected
     let settled = false;
@@ -146,7 +140,6 @@ export function speak(text: string, options: SynthesizeOptions): Promise<void> {
     };
 
     utterance.onstart = () => {
-      console.log("[TTS] Speech started");
       // Start the keepalive interval for long speeches
       resumeInterval = setInterval(() => {
         if (speechSynthesis.speaking) {
@@ -157,7 +150,6 @@ export function speak(text: string, options: SynthesizeOptions): Promise<void> {
     };
 
     utterance.onend = () => {
-      console.log("[TTS] Speech ended");
       cleanup();
       if (!settled) {
         settled = true;
@@ -166,7 +158,6 @@ export function speak(text: string, options: SynthesizeOptions): Promise<void> {
     };
 
     utterance.onerror = (event) => {
-      console.error("[TTS] Speech error:", event.error);
       cleanup();
       if (!settled) {
         settled = true;
@@ -179,15 +170,12 @@ export function speak(text: string, options: SynthesizeOptions): Promise<void> {
       }
     };
 
-    console.log("[TTS] Calling speechSynthesis.speak()");
     speechSynthesis.speak(utterance);
 
-    // Check state after a short delay to diagnose issues
+    // Check state after a short delay to handle stuck speech
     setTimeout(() => {
-      console.log("[TTS] Status check - speaking:", speechSynthesis.speaking, "pending:", speechSynthesis.pending, "paused:", speechSynthesis.paused);
       // If speech hasn't started but is pending, try resuming
       if (!speechSynthesis.speaking && speechSynthesis.pending) {
-        console.log("[TTS] Speech pending but not started, attempting resume...");
         speechSynthesis.resume();
       }
     }, 500);

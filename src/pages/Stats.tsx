@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import type { Deck, DeckStudyStats, Quiz, QuizStats } from "@/types";
 import { getAllDecks, getDeckStudyStats, getAllQuizzes, getQuizStats } from "@/lib/db";
+import { formatDuration } from "@/lib/utils";
 
 interface DeckWithStats extends Deck {
   stats: DeckStudyStats | null;
@@ -9,20 +10,6 @@ interface DeckWithStats extends Deck {
 
 interface QuizWithStats extends Quiz {
   stats: QuizStats | null;
-}
-
-function formatDuration(seconds: number): string {
-  if (seconds < 60) {
-    return `${seconds}s`;
-  } else if (seconds < 3600) {
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    return secs > 0 ? `${mins}m ${secs}s` : `${mins}m`;
-  } else {
-    const hours = Math.floor(seconds / 3600);
-    const mins = Math.floor((seconds % 3600) / 60);
-    return mins > 0 ? `${hours}h ${mins}m` : `${hours}h`;
-  }
 }
 
 function formatDate(dateString: string | null): string {

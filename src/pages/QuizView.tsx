@@ -7,6 +7,7 @@ import { getQuiz, getQuizStats, deleteQuiz, getTagsForQuiz, QuizTag, exportQuiz 
 import { BackButton } from "@/components";
 import { useToast } from "@/context/ToastContext";
 import { getQuizFilename } from "@/lib/slug";
+import { formatTimerDuration } from "@/lib/utils";
 
 type FilterLogic = "any" | "all";
 
@@ -235,13 +236,6 @@ export function QuizView() {
     }
   };
 
-  const formatDuration = (seconds: number | null) => {
-    if (!seconds) return "--:--";
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    return `${mins}:${secs.toString().padStart(2, "0")}`;
-  };
-
   if (loading) {
     return (
       <div className="min-h-full flex items-center justify-center bg-[#2d2a2e]">
@@ -410,7 +404,7 @@ export function QuizView() {
                 </div>
                 <div className="text-center">
                   <div className="text-3xl font-bold text-[#ab9df2] font-mono">
-                    {formatDuration(stats.averageDurationSeconds)}
+                    {formatTimerDuration(stats.averageDurationSeconds)}
                   </div>
                   <div className="text-sm text-[#939293]">Avg Time</div>
                 </div>

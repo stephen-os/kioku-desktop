@@ -28,7 +28,12 @@ export function SearchBar({
   useEffect(() => {
     if (isVisible && containerRef.current) {
       const input = containerRef.current.querySelector("input");
-      setTimeout(() => input?.focus(), 50);
+      // Use requestAnimationFrame to ensure the DOM is ready after visibility change
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          input?.focus();
+        });
+      });
     }
   }, [isVisible]);
 
