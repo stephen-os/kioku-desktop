@@ -103,7 +103,25 @@ pub fn verify_user_password(
     match (stored_hash, password) {
         (None, _) => Ok(true),
         (Some(_), None) => Ok(false),
-        (Some(stored), Some(provided)) => verify_password(provided, &stored),
+        (Some(stored), Some(provided)) if is_argon2_hash(&stored) => {
+            verify_password(provided, &stored)
+        }
+        // Legacy hash from v1.0.0. Verify against the old scheme, then
+        // transparently upgrade so the next login takes the Argon2 path.
+        (Some(stored), Some(provided)) => {
+            if !verify_legacy_password(provided, &stored) {
+                return Ok(false);
+            }
+
+            let upgraded = hash_password(provided)?;
+            conn.execute(
+                "UPDATE users SET password_hash = ?1 WHERE id = ?2",
+                params![upgraded, user_id],
+            )
+            .map_err(|e| format!("Failed to upgrade password hash: {}", e))?;
+
+            Ok(true)
+        }
     }
 }
 
@@ -249,4 +267,101 @@ fn verify_password(password: &str, hash: &str) -> Result<bool, String> {
     Ok(Argon2::default()
         .verify_password(password.as_bytes(), &parsed_hash)
         .is_ok())
+}
+
+/// Whether a stored hash is Argon2 PHC format. Anything else predates
+/// the move to Argon2 and must go through [`verify_legacy_password`].
+fn is_argon2_hash(hash: &str) -> bool {
+    hash.starts_with("$argon2")
+}
+
+/// Verify a password against a v1.0.0 hash, which was an unsalted 64-bit
+/// DefaultHasher digest. Kept only so existing users can log in once more,
+/// after which their hash is upgraded to Argon2.
+fn verify_legacy_password(password: &str, hash: &str) -> bool {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+
+    let mut hasher = DefaultHasher::new();
+    password.hash(&mut hasher);
+    format!("{:x}", hasher.finish()) == hash
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Hash a password the way v1.0.0 did, for exercising the upgrade path.
+    fn legacy_hash(password: &str) -> String {
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+
+        let mut hasher = DefaultHasher::new();
+        password.hash(&mut hasher);
+        format!("{:x}", hasher.finish())
+    }
+
+    fn db_with_user(password_hash: Option<&str>) -> Connection {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE users (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                password_hash TEXT,
+                avatar TEXT NOT NULL DEFAULT 'avatar-smile',
+                created_at TEXT NOT NULL,
+                last_login_at TEXT
+            );",
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO users (id, name, password_hash, created_at)
+             VALUES ('u1', 'Test', ?1, '2026-01-01')",
+            params![password_hash],
+        )
+        .unwrap();
+        conn
+    }
+
+    fn stored_hash(conn: &Connection) -> Option<String> {
+        conn.query_row("SELECT password_hash FROM users WHERE id = 'u1'", [], |r| {
+            r.get(0)
+        })
+        .unwrap()
+    }
+
+    #[test]
+    fn legacy_password_is_accepted_and_upgraded() {
+        let conn = db_with_user(Some(&legacy_hash("hunter2")));
+
+        assert!(verify_user_password(&conn, "u1", Some("hunter2")).unwrap());
+
+        let upgraded = stored_hash(&conn).unwrap();
+        assert!(is_argon2_hash(&upgraded), "hash should be upgraded in place");
+        assert!(verify_user_password(&conn, "u1", Some("hunter2")).unwrap());
+    }
+
+    #[test]
+    fn wrong_legacy_password_is_rejected_and_not_upgraded() {
+        let original = legacy_hash("hunter2");
+        let conn = db_with_user(Some(&original));
+
+        assert!(!verify_user_password(&conn, "u1", Some("wrong")).unwrap());
+        assert_eq!(stored_hash(&conn).as_deref(), Some(original.as_str()));
+    }
+
+    #[test]
+    fn argon2_password_still_verifies() {
+        let conn = db_with_user(Some(&hash_password("hunter2").unwrap()));
+
+        assert!(verify_user_password(&conn, "u1", Some("hunter2")).unwrap());
+        assert!(!verify_user_password(&conn, "u1", Some("wrong")).unwrap());
+    }
+
+    #[test]
+    fn user_without_password_needs_none() {
+        let conn = db_with_user(None);
+
+        assert!(verify_user_password(&conn, "u1", None).unwrap());
+    }
 }
