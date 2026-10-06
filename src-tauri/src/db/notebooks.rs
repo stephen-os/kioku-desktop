@@ -698,3 +698,367 @@ pub fn get_all_page_titles(
         .collect::<Result<Vec<_>, _>>()
         .map_err(|e| format!("Failed to collect page titles: {}", e))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const USER: &str = "u1";
+
+    /// In-memory DB with the tables the notebook/page functions touch.
+    fn db() -> Connection {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE notebooks (
+                id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                name TEXT NOT NULL,
+                description TEXT,
+                icon TEXT NOT NULL DEFAULT 'notebook',
+                color TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                UNIQUE(user_id, name)
+            );
+            CREATE TABLE pages (
+                id TEXT PRIMARY KEY,
+                notebook_id TEXT NOT NULL,
+                title TEXT NOT NULL,
+                content TEXT NOT NULL DEFAULT '',
+                position INTEGER NOT NULL DEFAULT 0,
+                is_pinned INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            CREATE TABLE notebook_favorites (
+                user_id TEXT NOT NULL,
+                notebook_id TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                PRIMARY KEY (user_id, notebook_id)
+            );",
+        )
+        .unwrap();
+        conn
+    }
+
+    fn new_notebook(conn: &Connection, user_id: &str, name: &str) -> Notebook {
+        create_notebook(
+            conn,
+            user_id,
+            &CreateNotebookRequest {
+                name: name.to_string(),
+                description: None,
+                icon: None,
+                color: None,
+            },
+        )
+        .unwrap()
+    }
+
+    fn new_page(conn: &Connection, notebook_id: &str, title: &str, content: &str) -> Page {
+        create_page(
+            conn,
+            notebook_id,
+            &CreatePageRequest {
+                title: title.to_string(),
+                content: Some(content.to_string()),
+                position: None,
+            },
+        )
+        .unwrap()
+    }
+
+    // ---- Notebook CRUD ----
+
+    #[test]
+    fn create_notebook_defaults_icon_and_trims_name() {
+        let conn = db();
+        let nb = new_notebook(&conn, USER, "  Journal  ");
+
+        assert_eq!(nb.name, "Journal");
+        assert_eq!(nb.icon, "notebook");
+        assert_eq!(nb.user_id, USER);
+    }
+
+    #[test]
+    fn create_notebook_rejects_blank_name() {
+        let conn = db();
+        let err = create_notebook(
+            &conn,
+            USER,
+            &CreateNotebookRequest {
+                name: "   ".to_string(),
+                description: None,
+                icon: None,
+                color: None,
+            },
+        )
+        .unwrap_err();
+        assert!(err.contains("empty"), "got: {err}");
+    }
+
+    #[test]
+    fn create_notebook_disambiguates_duplicate_names_per_user() {
+        let conn = db();
+        let first = new_notebook(&conn, USER, "Notes");
+        let second = new_notebook(&conn, USER, "Notes");
+        let third = new_notebook(&conn, USER, "Notes");
+
+        assert_eq!(first.name, "Notes");
+        assert_eq!(second.name, "Notes 2");
+        assert_eq!(third.name, "Notes 3");
+
+        // Name clashes are scoped to the user: a different user starts fresh.
+        let other = new_notebook(&conn, "u2", "Notes");
+        assert_eq!(other.name, "Notes");
+    }
+
+    #[test]
+    fn update_notebook_changes_fields() {
+        let conn = db();
+        let nb = new_notebook(&conn, USER, "Draft");
+
+        let updated = update_notebook(
+            &conn,
+            &nb.id,
+            &UpdateNotebookRequest {
+                name: "Published".to_string(),
+                description: Some("done".to_string()),
+                icon: Some("book".to_string()),
+                color: Some("#fff".to_string()),
+            },
+        )
+        .unwrap();
+
+        assert_eq!(updated.name, "Published");
+        assert_eq!(updated.description.as_deref(), Some("done"));
+        assert_eq!(updated.icon, "book");
+    }
+
+    #[test]
+    fn delete_notebook_enforces_ownership() {
+        let conn = db();
+        let nb = new_notebook(&conn, USER, "Mine");
+
+        // Wrong user cannot delete.
+        assert!(delete_notebook(&conn, "u2", &nb.id).is_err());
+        assert!(get_notebook(&conn, &nb.id).unwrap().is_some());
+
+        // Owner can.
+        delete_notebook(&conn, USER, &nb.id).unwrap();
+        assert!(get_notebook(&conn, &nb.id).unwrap().is_none());
+    }
+
+    #[test]
+    fn get_all_notebooks_reports_page_count_and_favorite() {
+        let conn = db();
+        let nb = new_notebook(&conn, USER, "NB");
+        new_page(&conn, &nb.id, "P1", "");
+        new_page(&conn, &nb.id, "P2", "");
+        toggle_notebook_favorite(&conn, USER, &nb.id).unwrap();
+
+        let all = get_all_notebooks(&conn, USER).unwrap();
+        assert_eq!(all.len(), 1);
+        assert_eq!(all[0].page_count, Some(2));
+        assert_eq!(all[0].is_favorite, Some(true));
+    }
+
+    // ---- Page CRUD ----
+
+    #[test]
+    fn create_page_auto_increments_position() {
+        let conn = db();
+        let nb = new_notebook(&conn, USER, "NB");
+
+        let p1 = new_page(&conn, &nb.id, "First", "");
+        let p2 = new_page(&conn, &nb.id, "Second", "");
+
+        assert_eq!(p1.position, 0);
+        assert_eq!(p2.position, 1);
+        assert!(!p1.is_pinned);
+    }
+
+    #[test]
+    fn create_page_rejects_blank_title() {
+        let conn = db();
+        let nb = new_notebook(&conn, USER, "NB");
+
+        let err = create_page(
+            &conn,
+            &nb.id,
+            &CreatePageRequest {
+                title: "  ".to_string(),
+                content: None,
+                position: None,
+            },
+        )
+        .unwrap_err();
+        assert!(err.contains("empty"), "got: {err}");
+    }
+
+    #[test]
+    fn update_page_persists_content_and_pin() {
+        let conn = db();
+        let nb = new_notebook(&conn, USER, "NB");
+        let page = new_page(&conn, &nb.id, "Title", "old");
+
+        let updated = update_page(
+            &conn,
+            &page.id,
+            &UpdatePageRequest {
+                title: "New Title".to_string(),
+                content: "new body".to_string(),
+                is_pinned: Some(true),
+            },
+        )
+        .unwrap();
+
+        assert_eq!(updated.title, "New Title");
+        assert_eq!(updated.content, "new body");
+        assert!(updated.is_pinned);
+    }
+
+    #[test]
+    fn get_pages_for_notebook_orders_pinned_first_then_position() {
+        let conn = db();
+        let nb = new_notebook(&conn, USER, "NB");
+        let _a = new_page(&conn, &nb.id, "A", ""); // pos 0
+        let b = new_page(&conn, &nb.id, "B", ""); // pos 1
+        let _c = new_page(&conn, &nb.id, "C", ""); // pos 2
+
+        // Pin the middle page; it should jump to the top.
+        toggle_page_pin(&conn, &b.id).unwrap();
+
+        let pages = get_pages_for_notebook(&conn, &nb.id).unwrap();
+        let titles: Vec<&str> = pages.iter().map(|p| p.title.as_str()).collect();
+        assert_eq!(titles, vec!["B", "A", "C"]);
+    }
+
+    #[test]
+    fn delete_page_removes_it() {
+        let conn = db();
+        let nb = new_notebook(&conn, USER, "NB");
+        let page = new_page(&conn, &nb.id, "Temp", "");
+
+        delete_page(&conn, &page.id).unwrap();
+        assert!(get_page(&conn, &page.id).unwrap().is_none());
+    }
+
+    #[test]
+    fn toggle_page_pin_flips_and_returns_new_state() {
+        let conn = db();
+        let nb = new_notebook(&conn, USER, "NB");
+        let page = new_page(&conn, &nb.id, "P", "");
+
+        assert!(toggle_page_pin(&conn, &page.id).unwrap());
+        assert!(get_page(&conn, &page.id).unwrap().unwrap().is_pinned);
+
+        assert!(!toggle_page_pin(&conn, &page.id).unwrap());
+        assert!(!get_page(&conn, &page.id).unwrap().unwrap().is_pinned);
+    }
+
+    // ---- Backlinks ----
+
+    #[test]
+    fn get_backlinks_matches_plain_and_piped_links_and_excludes_self() {
+        let conn = db();
+        let nb = new_notebook(&conn, USER, "NB");
+        let target = new_page(&conn, &nb.id, "Ownership", "the target page");
+
+        let plain = new_page(&conn, &nb.id, "Borrowing", "see [[Ownership]] for details");
+        let piped = new_page(&conn, &nb.id, "Lifetimes", "related to [[Ownership|the owner]]");
+        let _unrelated = new_page(&conn, &nb.id, "Traits", "nothing linked here");
+        // A self-reference in the target must not count as a backlink to itself.
+        update_page(
+            &conn,
+            &target.id,
+            &UpdatePageRequest {
+                title: "Ownership".to_string(),
+                content: "I mention [[Ownership]] myself".to_string(),
+                is_pinned: None,
+            },
+        )
+        .unwrap();
+
+        let backlinks = get_backlinks(&conn, &target.id, USER).unwrap();
+        let mut ids: Vec<String> = backlinks.iter().map(|b| b.id.clone()).collect();
+        ids.sort();
+        let mut expected = vec![plain.id.clone(), piped.id.clone()];
+        expected.sort();
+
+        assert_eq!(ids, expected);
+        assert!(!backlinks.iter().any(|b| b.id == target.id), "self is excluded");
+    }
+
+    #[test]
+    fn get_backlinks_does_not_match_partial_title_prefix() {
+        let conn = db();
+        let nb = new_notebook(&conn, USER, "NB");
+        let target = new_page(&conn, &nb.id, "Rust", "");
+        // [[Rustaceans]] should NOT resolve as a link to "Rust".
+        new_page(&conn, &nb.id, "Community", "see [[Rustaceans]]");
+
+        let backlinks = get_backlinks(&conn, &target.id, USER).unwrap();
+        assert!(backlinks.is_empty());
+    }
+
+    #[test]
+    fn get_backlinks_is_scoped_to_the_user() {
+        let conn = db();
+        let nb = new_notebook(&conn, USER, "NB");
+        let target = new_page(&conn, &nb.id, "Shared", "");
+
+        // Another user links to a page with the same title in their own notebook.
+        let other_nb = new_notebook(&conn, "u2", "Other");
+        new_page(&conn, &other_nb.id, "Linker", "points at [[Shared]]");
+
+        let backlinks = get_backlinks(&conn, &target.id, USER).unwrap();
+        assert!(backlinks.is_empty(), "other users' pages are not backlinks");
+    }
+
+    // ---- Search ----
+
+    #[test]
+    fn search_pages_is_case_insensitive_substring_match() {
+        let conn = db();
+        let nb = new_notebook(&conn, USER, "NB");
+        new_page(&conn, &nb.id, "Rust Ownership", "");
+        new_page(&conn, &nb.id, "Borrow Checker", "");
+
+        let hits = search_pages(&conn, USER, "OWNER", None).unwrap();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].title, "Rust Ownership");
+        assert_eq!(hits[0].notebook_name, "NB");
+    }
+
+    #[test]
+    fn search_pages_ranks_prefix_matches_first() {
+        let conn = db();
+        let nb = new_notebook(&conn, USER, "NB");
+        // Both contain "rust"; only the second starts with it.
+        new_page(&conn, &nb.id, "Learning Rust", "");
+        new_page(&conn, &nb.id, "Rust Basics", "");
+
+        let hits = search_pages(&conn, USER, "rust", None).unwrap();
+        let titles: Vec<&str> = hits.iter().map(|h| h.title.as_str()).collect();
+        assert_eq!(titles, vec!["Rust Basics", "Learning Rust"]);
+    }
+
+    #[test]
+    fn search_pages_respects_limit_and_user_scope() {
+        let conn = db();
+        let nb = new_notebook(&conn, USER, "NB");
+        for i in 0..5 {
+            new_page(&conn, &nb.id, &format!("Note {i}"), "");
+        }
+        // A different user's matching page must not appear.
+        let other_nb = new_notebook(&conn, "u2", "Other");
+        new_page(&conn, &other_nb.id, "Note elsewhere", "");
+
+        let limited = search_pages(&conn, USER, "note", Some(3)).unwrap();
+        assert_eq!(limited.len(), 3);
+
+        let all = search_pages(&conn, USER, "note", None).unwrap();
+        assert_eq!(all.len(), 5, "only this user's pages are returned");
+    }
+}

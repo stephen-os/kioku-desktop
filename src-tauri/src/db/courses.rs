@@ -844,3 +844,380 @@ pub fn link_lesson_items_by_name(
 
     Ok((linked, not_found))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Open an in-memory DB with the tables the course/lesson functions touch.
+    /// `lesson_items.item_id` is nullable here to mirror how `add_lesson_item`
+    /// actually inserts NULL for not-yet-imported items (the `is_missing` path).
+    fn db() -> Connection {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE courses (
+                id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                name TEXT NOT NULL,
+                description TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                UNIQUE(user_id, name)
+            );
+            CREATE TABLE lessons (
+                id TEXT PRIMARY KEY,
+                course_id TEXT NOT NULL,
+                title TEXT NOT NULL,
+                description TEXT,
+                position INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            CREATE TABLE lesson_items (
+                id TEXT PRIMARY KEY,
+                lesson_id TEXT NOT NULL,
+                item_type TEXT NOT NULL,
+                item_id TEXT,
+                item_name TEXT NOT NULL,
+                requirement_type TEXT,
+                requirement_value INTEGER,
+                position INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL
+            );
+            CREATE TABLE lesson_progress (
+                id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                course_id TEXT NOT NULL,
+                lesson_id TEXT NOT NULL,
+                lesson_item_id TEXT NOT NULL,
+                completed_at TEXT,
+                score_percentage INTEGER,
+                attempt_id TEXT,
+                session_id TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                UNIQUE(user_id, lesson_item_id)
+            );
+            CREATE TABLE course_favorites (
+                user_id TEXT NOT NULL,
+                course_id TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                PRIMARY KEY (user_id, course_id)
+            );",
+        )
+        .unwrap();
+        conn
+    }
+
+    const USER: &str = "u1";
+
+    fn positions(items: &[LessonItem]) -> Vec<i32> {
+        items.iter().map(|i| i.position).collect()
+    }
+
+    // ---- Lesson creation / auto-positioning ----
+
+    #[test]
+    fn create_lesson_auto_assigns_incrementing_positions() {
+        let conn = db();
+        let course = create_course(&conn, USER, "Rust", None).unwrap();
+
+        let first = create_lesson(&conn, &course.id, "Intro", None, None).unwrap();
+        let second = create_lesson(&conn, &course.id, "Ownership", None, None).unwrap();
+
+        assert_eq!(first.position, 0);
+        assert_eq!(second.position, 1);
+        // Fresh lessons start empty and incomplete.
+        assert_eq!(first.completed_item_count, Some(0));
+        assert_eq!(first.is_completed, Some(false));
+    }
+
+    #[test]
+    fn create_lesson_honours_explicit_position() {
+        let conn = db();
+        let course = create_course(&conn, USER, "Rust", None).unwrap();
+
+        let lesson = create_lesson(&conn, &course.id, "Intro", None, Some(5)).unwrap();
+
+        assert_eq!(lesson.position, 5);
+    }
+
+    // ---- Lesson item creation ----
+
+    #[test]
+    fn add_lesson_item_auto_positions_and_flags_missing_reference() {
+        let conn = db();
+        let course = create_course(&conn, USER, "Rust", None).unwrap();
+        let lesson = create_lesson(&conn, &course.id, "Intro", None, None).unwrap();
+
+        // No item_id -> treated as "missing" (not yet linked to a deck/quiz).
+        let missing = add_lesson_item(
+            &conn, &lesson.id, "deck", "Basics", None, Some("study"), None, None,
+        )
+        .unwrap();
+        // A linked item carries its reference and is not missing.
+        let linked = add_lesson_item(
+            &conn, &lesson.id, "quiz", "Checkpoint", Some("quiz-1"), Some("min_score"),
+            Some(80), None,
+        )
+        .unwrap();
+
+        assert_eq!(missing.position, 0);
+        assert_eq!(missing.is_missing, Some(true));
+        assert_eq!(missing.item_type, LessonItemType::Deck);
+        assert_eq!(missing.requirement_type, Some(RequirementType::Study));
+
+        assert_eq!(linked.position, 1);
+        assert_eq!(linked.is_missing, Some(false));
+        assert_eq!(linked.item_type, LessonItemType::Quiz);
+        assert_eq!(linked.requirement_type, Some(RequirementType::MinScore));
+        assert_eq!(linked.requirement_value, Some(80));
+    }
+
+    // ---- Reordering ----
+
+    #[test]
+    fn reorder_lessons_rewrites_positions_in_given_order() {
+        let conn = db();
+        let course = create_course(&conn, USER, "Rust", None).unwrap();
+        let a = create_lesson(&conn, &course.id, "A", None, None).unwrap();
+        let b = create_lesson(&conn, &course.id, "B", None, None).unwrap();
+        let c = create_lesson(&conn, &course.id, "C", None, None).unwrap();
+
+        // Move C to the front.
+        reorder_lessons(&conn, &course.id, &[c.id.clone(), a.id.clone(), b.id.clone()]).unwrap();
+
+        let lessons = get_lessons(&conn, USER, &course.id).unwrap();
+        let ordered: Vec<&str> = lessons.iter().map(|l| l.title.as_str()).collect();
+        assert_eq!(ordered, vec!["C", "A", "B"]);
+        assert_eq!(lessons.iter().map(|l| l.position).collect::<Vec<_>>(), vec![0, 1, 2]);
+    }
+
+    #[test]
+    fn reorder_lessons_ignores_lessons_from_other_courses() {
+        let conn = db();
+        let course = create_course(&conn, USER, "Rust", None).unwrap();
+        let other = create_course(&conn, USER, "Go", None).unwrap();
+        let a = create_lesson(&conn, &course.id, "A", None, None).unwrap();
+        let foreign = create_lesson(&conn, &other.id, "Foreign", None, None).unwrap();
+
+        // The foreign id is scoped out by the `course_id` guard, so only `a` moves.
+        reorder_lessons(&conn, &course.id, &[foreign.id.clone(), a.id.clone()]).unwrap();
+
+        let a_pos: i32 = conn
+            .query_row("SELECT position FROM lessons WHERE id = ?1", params![a.id], |r| r.get(0))
+            .unwrap();
+        let foreign_pos: i32 = conn
+            .query_row("SELECT position FROM lessons WHERE id = ?1", params![foreign.id], |r| r.get(0))
+            .unwrap();
+        assert_eq!(a_pos, 1, "a takes its index in the id list");
+        assert_eq!(foreign_pos, 0, "foreign lesson is untouched");
+    }
+
+    #[test]
+    fn reorder_lesson_items_rewrites_positions_in_given_order() {
+        let conn = db();
+        let course = create_course(&conn, USER, "Rust", None).unwrap();
+        let lesson = create_lesson(&conn, &course.id, "Intro", None, None).unwrap();
+        let x = add_lesson_item(&conn, &lesson.id, "deck", "X", Some("x"), None, None, None).unwrap();
+        let y = add_lesson_item(&conn, &lesson.id, "deck", "Y", Some("y"), None, None, None).unwrap();
+        let z = add_lesson_item(&conn, &lesson.id, "deck", "Z", Some("z"), None, None, None).unwrap();
+
+        reorder_lesson_items(&conn, &lesson.id, &[z.id.clone(), x.id.clone(), y.id.clone()]).unwrap();
+
+        let items = get_lesson_items(&conn, USER, &lesson.id).unwrap();
+        let names: Vec<&str> = items.iter().map(|i| i.item_name.as_str()).collect();
+        assert_eq!(names, vec!["Z", "X", "Y"]);
+        assert_eq!(positions(&items), vec![0, 1, 2]);
+    }
+
+    // ---- Progress recording ----
+
+    #[test]
+    fn record_lesson_progress_inserts_then_updates_same_row() {
+        let conn = db();
+        let course = create_course(&conn, USER, "Rust", None).unwrap();
+        let lesson = create_lesson(&conn, &course.id, "Intro", None, None).unwrap();
+        let item = add_lesson_item(&conn, &lesson.id, "quiz", "Q", Some("q"), Some("min_score"), Some(70), None).unwrap();
+
+        let first = record_lesson_progress(
+            &conn, USER, &course.id, &lesson.id, &item.id, Some(55), None, None,
+        )
+        .unwrap();
+        // Recording again for the same item must reuse the row, not create a second.
+        let second = record_lesson_progress(
+            &conn, USER, &course.id, &lesson.id, &item.id, Some(90), Some("att-1"), None,
+        )
+        .unwrap();
+
+        assert_eq!(first.id, second.id, "progress is upserted per (user, item)");
+
+        let rows: i32 = conn
+            .query_row("SELECT COUNT(*) FROM lesson_progress", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(rows, 1);
+        assert_eq!(second.score_percentage, Some(90));
+        assert_eq!(second.attempt_id.as_deref(), Some("att-1"));
+    }
+
+    #[test]
+    fn record_lesson_progress_coalesces_missing_fields_on_update() {
+        let conn = db();
+        let course = create_course(&conn, USER, "Rust", None).unwrap();
+        let lesson = create_lesson(&conn, &course.id, "Intro", None, None).unwrap();
+        let item = add_lesson_item(&conn, &lesson.id, "quiz", "Q", Some("q"), None, None, None).unwrap();
+
+        record_lesson_progress(&conn, USER, &course.id, &lesson.id, &item.id, Some(80), Some("att-1"), None).unwrap();
+        // A later call without a score/attempt should preserve the earlier values (COALESCE).
+        record_lesson_progress(&conn, USER, &course.id, &lesson.id, &item.id, None, None, None).unwrap();
+
+        let (score, attempt): (Option<i32>, Option<String>) = conn
+            .query_row(
+                "SELECT score_percentage, attempt_id FROM lesson_progress WHERE lesson_item_id = ?1",
+                params![item.id],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(score, Some(80));
+        assert_eq!(attempt.as_deref(), Some("att-1"));
+    }
+
+    #[test]
+    fn clear_lesson_item_progress_removes_only_that_users_row() {
+        let conn = db();
+        let course = create_course(&conn, USER, "Rust", None).unwrap();
+        let lesson = create_lesson(&conn, &course.id, "Intro", None, None).unwrap();
+        let item = add_lesson_item(&conn, &lesson.id, "deck", "D", Some("d"), None, None, None).unwrap();
+
+        record_lesson_progress(&conn, USER, &course.id, &lesson.id, &item.id, None, None, None).unwrap();
+        record_lesson_progress(&conn, "u2", &course.id, &lesson.id, &item.id, None, None, None).unwrap();
+
+        clear_lesson_item_progress(&conn, USER, &item.id).unwrap();
+
+        let remaining: i32 = conn
+            .query_row("SELECT COUNT(*) FROM lesson_progress WHERE lesson_item_id = ?1", params![item.id], |r| r.get(0))
+            .unwrap();
+        assert_eq!(remaining, 1, "other users' progress is untouched");
+        // And it is u2's row that survives.
+        let owner: String = conn
+            .query_row("SELECT user_id FROM lesson_progress WHERE lesson_item_id = ?1", params![item.id], |r| r.get(0))
+            .unwrap();
+        assert_eq!(owner, "u2");
+    }
+
+    // ---- Completion calculation (the interesting part) ----
+
+    #[test]
+    fn lesson_is_completed_only_when_every_item_is_completed() {
+        let conn = db();
+        let course = create_course(&conn, USER, "Rust", None).unwrap();
+        let lesson = create_lesson(&conn, &course.id, "Intro", None, None).unwrap();
+        let i1 = add_lesson_item(&conn, &lesson.id, "deck", "D1", Some("d1"), None, None, None).unwrap();
+        let i2 = add_lesson_item(&conn, &lesson.id, "deck", "D2", Some("d2"), None, None, None).unwrap();
+
+        // One of two complete -> lesson not complete, count reflects partial progress.
+        record_lesson_progress(&conn, USER, &course.id, &lesson.id, &i1.id, None, None, None).unwrap();
+        let lessons = get_lessons(&conn, USER, &course.id).unwrap();
+        assert_eq!(lessons[0].completed_item_count, Some(1));
+        assert_eq!(lessons[0].is_completed, Some(false));
+
+        // Both complete -> lesson complete.
+        record_lesson_progress(&conn, USER, &course.id, &lesson.id, &i2.id, None, None, None).unwrap();
+        let lessons = get_lessons(&conn, USER, &course.id).unwrap();
+        assert_eq!(lessons[0].completed_item_count, Some(2));
+        assert_eq!(lessons[0].is_completed, Some(true));
+    }
+
+    #[test]
+    fn empty_lesson_is_never_completed() {
+        let conn = db();
+        let course = create_course(&conn, USER, "Rust", None).unwrap();
+        create_lesson(&conn, &course.id, "Empty", None, None).unwrap();
+
+        let lessons = get_lessons(&conn, USER, &course.id).unwrap();
+        // An item-less lesson has nothing to complete and must not count as done.
+        assert_eq!(lessons[0].is_completed, Some(false));
+        assert_eq!(lessons[0].completed_item_count, Some(0));
+    }
+
+    #[test]
+    fn progress_is_scoped_per_user() {
+        let conn = db();
+        let course = create_course(&conn, USER, "Rust", None).unwrap();
+        let lesson = create_lesson(&conn, &course.id, "Intro", None, None).unwrap();
+        let item = add_lesson_item(&conn, &lesson.id, "deck", "D", Some("d"), None, None, None).unwrap();
+
+        record_lesson_progress(&conn, USER, &course.id, &lesson.id, &item.id, None, None, None).unwrap();
+
+        // u1 sees it complete...
+        let u1 = get_lessons(&conn, USER, &course.id).unwrap();
+        assert_eq!(u1[0].is_completed, Some(true));
+        // ...but u2, who has no progress rows, does not.
+        let u2 = get_lessons(&conn, "u2", &course.id).unwrap();
+        assert_eq!(u2[0].is_completed, Some(false));
+        assert_eq!(u2[0].completed_item_count, Some(0));
+    }
+
+    #[test]
+    fn get_course_with_lessons_counts_completed_lessons() {
+        let conn = db();
+        let course = create_course(&conn, USER, "Rust", None).unwrap();
+        let l1 = create_lesson(&conn, &course.id, "L1", None, None).unwrap();
+        let l2 = create_lesson(&conn, &course.id, "L2", None, None).unwrap();
+        let l1_item = add_lesson_item(&conn, &l1.id, "deck", "D", Some("d"), None, None, None).unwrap();
+        add_lesson_item(&conn, &l2.id, "deck", "E", Some("e"), None, None, None).unwrap();
+
+        // Complete only L1's single item.
+        record_lesson_progress(&conn, USER, &course.id, &l1.id, &l1_item.id, None, None, None).unwrap();
+
+        let loaded = get_course_with_lessons(&conn, USER, &course.id).unwrap().unwrap();
+        assert_eq!(loaded.lesson_count, Some(2));
+        assert_eq!(loaded.completed_lesson_count, Some(1));
+    }
+
+    #[test]
+    fn get_all_courses_completed_lesson_count_matches_per_user_progress() {
+        let conn = db();
+        let course = create_course(&conn, USER, "Rust", None).unwrap();
+        let l1 = create_lesson(&conn, &course.id, "L1", None, None).unwrap();
+        let l2 = create_lesson(&conn, &course.id, "L2", None, None).unwrap();
+        let a = add_lesson_item(&conn, &l1.id, "deck", "A", Some("a"), None, None, None).unwrap();
+        let b = add_lesson_item(&conn, &l1.id, "deck", "B", Some("b"), None, None, None).unwrap();
+        add_lesson_item(&conn, &l2.id, "deck", "C", Some("c"), None, None, None).unwrap();
+
+        // Fully complete L1 (both items); leave L2 untouched.
+        record_lesson_progress(&conn, USER, &course.id, &l1.id, &a.id, None, None, None).unwrap();
+        record_lesson_progress(&conn, USER, &course.id, &l1.id, &b.id, None, None, None).unwrap();
+
+        let courses = get_all_courses(&conn, USER).unwrap();
+        assert_eq!(courses.len(), 1);
+        assert_eq!(courses[0].lesson_count, Some(2));
+        // Only L1's items are all complete, so exactly one lesson counts as done.
+        assert_eq!(courses[0].completed_lesson_count, Some(1));
+    }
+
+    #[test]
+    fn get_all_courses_does_not_count_empty_lessons_as_completed() {
+        let conn = db();
+        let course = create_course(&conn, USER, "Rust", None).unwrap();
+        // An item-less lesson is excluded by the INNER JOIN on lesson_items,
+        // so it must not inflate the completed count (matches get_lessons).
+        create_lesson(&conn, &course.id, "Empty", None, None).unwrap();
+
+        let courses = get_all_courses(&conn, USER).unwrap();
+        assert_eq!(courses[0].lesson_count, Some(1));
+        assert_eq!(courses[0].completed_lesson_count, Some(0));
+    }
+
+    #[test]
+    fn toggle_course_favorite_flips_state_and_surfaces_in_listing() {
+        let conn = db();
+        let course = create_course(&conn, USER, "Rust", None).unwrap();
+
+        assert!(toggle_course_favorite(&conn, USER, &course.id).unwrap());
+        assert_eq!(get_all_courses(&conn, USER).unwrap()[0].is_favorite, Some(true));
+
+        assert!(!toggle_course_favorite(&conn, USER, &course.id).unwrap());
+        assert_eq!(get_all_courses(&conn, USER).unwrap()[0].is_favorite, Some(false));
+    }
+}
