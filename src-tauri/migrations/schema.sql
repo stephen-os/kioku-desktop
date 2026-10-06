@@ -54,7 +54,7 @@ CREATE TABLE IF NOT EXISTS lesson_items (
     id TEXT PRIMARY KEY,
     lesson_id TEXT NOT NULL,
     item_type TEXT NOT NULL,  -- 'deck' or 'quiz'
-    item_id TEXT NOT NULL,    -- FK to decks or quizzes (may be NULL if not yet imported)
+    item_id TEXT,             -- FK to decks or quizzes (NULL until the referenced deck/quiz is imported)
     item_name TEXT NOT NULL,  -- Name for matching during import
     requirement_type TEXT,    -- NULL, 'study', 'review', 'complete', 'min_score'
     requirement_value INTEGER, -- For min_score: the percentage required (e.g., 80)
