@@ -442,6 +442,20 @@ pub fn toggle_notebook_favorite(conn: &Connection, user_id: &str, notebook_id: &
 // Search Operations
 // ============================================
 
+/// Escape SQL LIKE wildcards (`%`, `_`) and the escape char itself (`\`) in a
+/// user-supplied search term so they are matched literally. Pair with an
+/// `ESCAPE '\'` clause on the LIKE expression.
+fn escape_like(input: &str) -> String {
+    let mut out = String::with_capacity(input.len());
+    for ch in input.chars() {
+        if matches!(ch, '\\' | '%' | '_') {
+            out.push('\\');
+        }
+        out.push(ch);
+    }
+    out
+}
+
 /// Search pages across all notebooks for a user
 /// Returns results ordered by relevance (title match) then by updated_at
 pub fn search_pages(
@@ -451,23 +465,26 @@ pub fn search_pages(
     limit: Option<i32>,
 ) -> Result<Vec<PageSearchResult>, String> {
     let limit = limit.unwrap_or(20);
-    let search_pattern = format!("%{}%", query.to_lowercase());
+    // Escape LIKE wildcards in the user's query so `%` and `_` match literally
+    // instead of acting as wildcards (see the ESCAPE '\' clauses below).
+    let escaped = escape_like(&query.to_lowercase());
+    let search_pattern = format!("%{}%", escaped);
 
     let mut stmt = conn
         .prepare(
             "SELECT p.id, p.notebook_id, p.title, n.name as notebook_name, p.updated_at
              FROM pages p
              INNER JOIN notebooks n ON p.notebook_id = n.id
-             WHERE n.user_id = ?1 AND LOWER(p.title) LIKE ?2
+             WHERE n.user_id = ?1 AND LOWER(p.title) LIKE ?2 ESCAPE '\\'
              ORDER BY
-                CASE WHEN LOWER(p.title) LIKE ?3 THEN 0 ELSE 1 END,
+                CASE WHEN LOWER(p.title) LIKE ?3 ESCAPE '\\' THEN 0 ELSE 1 END,
                 p.updated_at DESC
              LIMIT ?4",
         )
         .map_err(|e| format!("Failed to prepare search query: {}", e))?;
 
     // For ranking: exact prefix match gets priority
-    let prefix_pattern = format!("{}%", query.to_lowercase());
+    let prefix_pattern = format!("{}%", escaped);
 
     let results = stmt
         .query_map(params![user_id, search_pattern, prefix_pattern, limit], |row| {
