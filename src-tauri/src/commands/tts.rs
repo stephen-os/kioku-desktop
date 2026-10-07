@@ -1,25 +1,24 @@
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
+use std::collections::hash_map::DefaultHasher;
 use std::fs;
+use std::hash::{Hash, Hasher};
 use std::io::Write;
 use std::path::PathBuf;
+use std::process::Command;
 use tauri::{AppHandle, Emitter, Manager};
 
-const PIPER_DOWNLOAD_URL: &str = "https://github.com/rhasspy/piper/releases/download/2023.11.14-2/piper_windows_amd64.zip";
+/// Download URL for the prebuilt standalone `kioku-tts` engine (MeloTTS, frozen
+/// with PyInstaller). The user hosts the per-platform ZIP on a `kioku-desktop`
+/// GitHub release and fills this in. Until then it stays as the placeholder
+/// below and `install_tts` returns a friendly error so the UI shows the
+/// Web Speech fallback.
+///
+/// TODO(KIOKU_TTS_RELEASE_URL): set this to the hosted release ZIP URL, e.g.
+/// "https://github.com/stephen-os/kioku-desktop/releases/download/tts-v1/kioku-tts-windows.zip"
+const KIOKU_TTS_RELEASE_URL: &str = "TODO_SET_AFTER_HOSTING";
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct PiperVoice {
-    pub id: String,
-    pub name: String,
-    pub language: String,
-    pub language_code: String,
-    pub size_mb: u32,
-    pub is_installed: bool,
-    pub download_url: String,
-    pub config_url: String,
-}
-
+/// Progress payload emitted on the `tts-download-progress` event during install.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DownloadProgress {
@@ -28,131 +27,124 @@ pub struct DownloadProgress {
     pub message: String,
 }
 
-/// Get the Piper directory path
-fn get_piper_dir(app: &AppHandle) -> Result<PathBuf, String> {
+/// Engine installation status returned to the front end.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TtsStatus {
+    pub installed: bool,
+    pub size_bytes: u64,
+}
+
+/// `<app_data>/tts`
+fn get_tts_dir(app: &AppHandle) -> Result<PathBuf, String> {
     let app_data_dir = app
         .path()
         .app_data_dir()
         .map_err(|e| format!("Failed to get app data dir: {}", e))?;
-    Ok(app_data_dir.join("piper"))
+    Ok(app_data_dir.join("tts"))
 }
 
-/// Get the voices directory path
-fn get_voices_dir(app: &AppHandle) -> Result<PathBuf, String> {
-    Ok(get_piper_dir(app)?.join("voices"))
+/// `<app_data>/tts/engine`
+fn get_engine_dir(app: &AppHandle) -> Result<PathBuf, String> {
+    Ok(get_tts_dir(app)?.join("engine"))
 }
 
-/// Check if Piper engine is installed
+/// `<app_data>/tts/cache`
+fn get_cache_dir(app: &AppHandle) -> Result<PathBuf, String> {
+    Ok(get_tts_dir(app)?.join("cache"))
+}
+
+/// Path to the engine executable (`.exe` on Windows) under the engine dir.
+fn get_engine_exe(app: &AppHandle) -> Result<PathBuf, String> {
+    let exe_name = if cfg!(windows) {
+        "kioku-tts.exe"
+    } else {
+        "kioku-tts"
+    };
+    Ok(get_engine_dir(app)?.join(exe_name))
+}
+
+/// Recursively sum file sizes under a directory. Missing dir => 0.
+fn dir_size(path: &PathBuf) -> u64 {
+    let mut size = 0;
+    if let Ok(entries) = fs::read_dir(path) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                size += dir_size(&path);
+            } else if let Ok(meta) = path.metadata() {
+                size += meta.len();
+            }
+        }
+    }
+    size
+}
+
+/// Deterministic cache filename for a (lang, text) pair: `<hex>.wav`.
+fn cache_filename(lang: &str, text: &str) -> String {
+    let mut hasher = DefaultHasher::new();
+    lang.hash(&mut hasher);
+    "\u{1f}".hash(&mut hasher); // separator so (a,bc) != (ab,c)
+    text.hash(&mut hasher);
+    format!("{:016x}.wav", hasher.finish())
+}
+
+/// Check engine installation status and total storage used (engine + cache).
 #[tauri::command]
-pub async fn is_piper_installed(app: AppHandle) -> Result<bool, String> {
-    let piper_dir = get_piper_dir(&app)?;
-    let piper_exe = piper_dir.join("piper.exe");
-    Ok(piper_exe.exists())
+pub async fn tts_status(app: AppHandle) -> Result<TtsStatus, String> {
+    let installed = get_engine_exe(&app)?.exists();
+    let size_bytes = tts_storage_bytes(&app)?;
+    Ok(TtsStatus {
+        installed,
+        size_bytes,
+    })
 }
 
-/// Get the list of available voices with their installation status
-#[tauri::command]
-pub async fn get_piper_voices(app: AppHandle) -> Result<Vec<PiperVoice>, String> {
-    let voices_dir = get_voices_dir(&app)?;
-
-    // Define available voices
-    let voices = vec![
-        PiperVoice {
-            id: "en_US".to_string(),
-            name: "English (US)".to_string(),
-            language: "English".to_string(),
-            language_code: "en_US".to_string(),
-            size_mb: 75,
-            is_installed: voices_dir.join("en_US-amy-medium.onnx").exists(),
-            download_url: "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/amy/medium/en_US-amy-medium.onnx".to_string(),
-            config_url: "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/amy/medium/en_US-amy-medium.onnx.json".to_string(),
-        },
-        PiperVoice {
-            id: "en_GB".to_string(),
-            name: "English (UK)".to_string(),
-            language: "English".to_string(),
-            language_code: "en_GB".to_string(),
-            size_mb: 75,
-            is_installed: voices_dir.join("en_GB-alba-medium.onnx").exists(),
-            download_url: "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_GB/alba/medium/en_GB-alba-medium.onnx".to_string(),
-            config_url: "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_GB/alba/medium/en_GB-alba-medium.onnx.json".to_string(),
-        },
-        PiperVoice {
-            id: "es_ES".to_string(),
-            name: "Spanish (Spain)".to_string(),
-            language: "Spanish".to_string(),
-            language_code: "es_ES".to_string(),
-            size_mb: 68,
-            is_installed: voices_dir.join("es_ES-davefx-medium.onnx").exists(),
-            download_url: "https://huggingface.co/rhasspy/piper-voices/resolve/main/es/es_ES/davefx/medium/es_ES-davefx-medium.onnx".to_string(),
-            config_url: "https://huggingface.co/rhasspy/piper-voices/resolve/main/es/es_ES/davefx/medium/es_ES-davefx-medium.onnx.json".to_string(),
-        },
-        PiperVoice {
-            id: "fr_FR".to_string(),
-            name: "French".to_string(),
-            language: "French".to_string(),
-            language_code: "fr_FR".to_string(),
-            size_mb: 71,
-            is_installed: voices_dir.join("fr_FR-upmc-medium.onnx").exists(),
-            download_url: "https://huggingface.co/rhasspy/piper-voices/resolve/main/fr/fr_FR/upmc/medium/fr_FR-upmc-medium.onnx".to_string(),
-            config_url: "https://huggingface.co/rhasspy/piper-voices/resolve/main/fr/fr_FR/upmc/medium/fr_FR-upmc-medium.onnx.json".to_string(),
-        },
-        PiperVoice {
-            id: "de_DE".to_string(),
-            name: "German".to_string(),
-            language: "German".to_string(),
-            language_code: "de_DE".to_string(),
-            size_mb: 73,
-            is_installed: voices_dir.join("de_DE-thorsten-medium.onnx").exists(),
-            download_url: "https://huggingface.co/rhasspy/piper-voices/resolve/main/de/de_DE/thorsten/medium/de_DE-thorsten-medium.onnx".to_string(),
-            config_url: "https://huggingface.co/rhasspy/piper-voices/resolve/main/de/de_DE/thorsten/medium/de_DE-thorsten-medium.onnx.json".to_string(),
-        },
-        PiperVoice {
-            id: "zh_CN".to_string(),
-            name: "Chinese (Mandarin)".to_string(),
-            language: "Chinese".to_string(),
-            language_code: "zh_CN".to_string(),
-            size_mb: 85,
-            is_installed: voices_dir.join("zh_CN-huayan-medium.onnx").exists(),
-            download_url: "https://huggingface.co/rhasspy/piper-voices/resolve/main/zh/zh_CN/huayan/medium/zh_CN-huayan-medium.onnx".to_string(),
-            config_url: "https://huggingface.co/rhasspy/piper-voices/resolve/main/zh/zh_CN/huayan/medium/zh_CN-huayan-medium.onnx.json".to_string(),
-        },
-    ];
-
-    Ok(voices)
+/// Bytes used by the engine + cache directories.
+fn tts_storage_bytes(app: &AppHandle) -> Result<u64, String> {
+    let tts_dir = get_tts_dir(app)?;
+    if !tts_dir.exists() {
+        return Ok(0);
+    }
+    Ok(dir_size(&tts_dir))
 }
 
-/// Install the Piper engine
+/// Download and extract the standalone MeloTTS engine into `<app_data>/tts/engine`.
+/// Emits progress on `tts-download-progress`. Returns a friendly error while the
+/// release URL is still the placeholder.
 #[tauri::command]
-pub async fn install_piper(app: AppHandle) -> Result<(), String> {
-    let piper_dir = get_piper_dir(&app)?;
-    let voices_dir = get_voices_dir(&app)?;
+pub async fn install_tts(app: AppHandle) -> Result<(), String> {
+    if KIOKU_TTS_RELEASE_URL == "TODO_SET_AFTER_HOSTING" {
+        return Err("TTS engine not yet available".to_string());
+    }
 
-    // Create directories
-    fs::create_dir_all(&piper_dir).map_err(|e| format!("Failed to create piper dir: {}", e))?;
-    fs::create_dir_all(&voices_dir).map_err(|e| format!("Failed to create voices dir: {}", e))?;
+    let engine_dir = get_engine_dir(&app)?;
+    fs::create_dir_all(&engine_dir)
+        .map_err(|e| format!("Failed to create engine dir: {}", e))?;
 
-    // Emit starting progress
-    let _ = app.emit("piper-download-progress", DownloadProgress {
-        id: "piper".to_string(),
-        progress: 0.0,
-        message: "Starting download...".to_string(),
-    });
+    let _ = app.emit(
+        "tts-download-progress",
+        DownloadProgress {
+            id: "tts".to_string(),
+            progress: 0.0,
+            message: "Starting download...".to_string(),
+        },
+    );
 
-    // Download Piper
+    // Stream-download the ZIP to disk (mirrors the old Piper install flow).
     let client = reqwest::Client::new();
     let response = client
-        .get(PIPER_DOWNLOAD_URL)
+        .get(KIOKU_TTS_RELEASE_URL)
         .send()
         .await
-        .map_err(|e| format!("Failed to download Piper: {}", e))?;
+        .map_err(|e| format!("Failed to download TTS engine: {}", e))?;
 
     let total_size = response.content_length().unwrap_or(0);
     let mut downloaded: u64 = 0;
 
-    let zip_path = piper_dir.join("piper.zip");
-    let mut file = fs::File::create(&zip_path)
-        .map_err(|e| format!("Failed to create zip file: {}", e))?;
+    let zip_path = engine_dir.join("kioku-tts.zip");
+    let mut file =
+        fs::File::create(&zip_path).map_err(|e| format!("Failed to create zip file: {}", e))?;
 
     let mut stream = response.bytes_stream();
 
@@ -168,245 +160,141 @@ pub async fn install_piper(app: AppHandle) -> Result<(), String> {
             0.5
         };
 
-        let _ = app.emit("piper-download-progress", DownloadProgress {
-            id: "piper".to_string(),
-            progress,
-            message: format!("Downloading... {:.1} MB", downloaded as f64 / 1_000_000.0),
-        });
+        let _ = app.emit(
+            "tts-download-progress",
+            DownloadProgress {
+                id: "tts".to_string(),
+                progress,
+                message: format!("Downloading... {:.1} MB", downloaded as f64 / 1_000_000.0),
+            },
+        );
     }
 
     drop(file);
 
-    // Extract zip
-    let _ = app.emit("piper-download-progress", DownloadProgress {
-        id: "piper".to_string(),
-        progress: 0.85,
-        message: "Extracting...".to_string(),
-    });
+    // Extract the ZIP, preserving its internal directory structure (the engine
+    // ships models and support files in subfolders).
+    let _ = app.emit(
+        "tts-download-progress",
+        DownloadProgress {
+            id: "tts".to_string(),
+            progress: 0.85,
+            message: "Extracting...".to_string(),
+        },
+    );
 
-    let zip_file = fs::File::open(&zip_path)
-        .map_err(|e| format!("Failed to open zip: {}", e))?;
-    let mut archive = zip::ZipArchive::new(zip_file)
-        .map_err(|e| format!("Failed to read zip: {}", e))?;
+    let zip_file =
+        fs::File::open(&zip_path).map_err(|e| format!("Failed to open zip: {}", e))?;
+    let mut archive =
+        zip::ZipArchive::new(zip_file).map_err(|e| format!("Failed to read zip: {}", e))?;
 
     for i in 0..archive.len() {
-        let mut file = archive
+        let mut entry = archive
             .by_index(i)
             .map_err(|e| format!("Failed to read zip entry: {}", e))?;
 
-        // Skip directories and parent paths in zip
-        let name = file.name().to_string();
-        if name.ends_with('/') {
-            continue;
-        }
-
-        // Extract only the filename (flatten the directory structure)
-        let file_name = std::path::Path::new(&name)
-            .file_name()
-            .unwrap_or_default()
-            .to_str()
-            .unwrap_or_default();
-
-        if file_name.is_empty() {
-            continue;
-        }
-
-        let out_path = piper_dir.join(file_name);
-        let mut out_file = fs::File::create(&out_path)
-            .map_err(|e| format!("Failed to create file {}: {}", file_name, e))?;
-
-        std::io::copy(&mut file, &mut out_file)
-            .map_err(|e| format!("Failed to extract {}: {}", file_name, e))?;
-    }
-
-    // Clean up zip
-    let _ = fs::remove_file(&zip_path);
-
-    let _ = app.emit("piper-download-progress", DownloadProgress {
-        id: "piper".to_string(),
-        progress: 1.0,
-        message: "Complete!".to_string(),
-    });
-
-    Ok(())
-}
-
-/// Uninstall the Piper engine (keeps voice models)
-#[tauri::command]
-pub async fn uninstall_piper(app: AppHandle) -> Result<(), String> {
-    let piper_dir = get_piper_dir(&app)?;
-
-    // Remove piper executable and related files, but keep voices directory
-    let files_to_remove = ["piper.exe", "espeak-ng-data", "piper_phonemize.dll", "onnxruntime.dll"];
-
-    for file in files_to_remove {
-        let path = piper_dir.join(file);
-        if path.is_dir() {
-            let _ = fs::remove_dir_all(&path);
-        } else if path.exists() {
-            let _ = fs::remove_file(&path);
-        }
-    }
-
-    Ok(())
-}
-
-/// Download a voice model
-#[tauri::command]
-pub async fn download_voice(app: AppHandle, voice_id: String) -> Result<(), String> {
-    let voices = get_piper_voices(app.clone()).await?;
-    let voice = voices
-        .iter()
-        .find(|v| v.id == voice_id)
-        .ok_or_else(|| format!("Voice not found: {}", voice_id))?;
-
-    let voices_dir = get_voices_dir(&app)?;
-    fs::create_dir_all(&voices_dir).map_err(|e| format!("Failed to create voices dir: {}", e))?;
-
-    // Download model file
-    let _ = app.emit("piper-download-progress", DownloadProgress {
-        id: voice_id.clone(),
-        progress: 0.0,
-        message: "Starting download...".to_string(),
-    });
-
-    let client = reqwest::Client::new();
-
-    // Download ONNX model
-    let response = client
-        .get(&voice.download_url)
-        .send()
-        .await
-        .map_err(|e| format!("Failed to download voice model: {}", e))?;
-
-    let total_size = response.content_length().unwrap_or(0);
-    let mut downloaded: u64 = 0;
-
-    // Extract filename from URL
-    let model_filename = voice
-        .download_url
-        .split('/')
-        .last()
-        .unwrap_or("model.onnx");
-
-    let model_path = voices_dir.join(model_filename);
-    let mut file = fs::File::create(&model_path)
-        .map_err(|e| format!("Failed to create model file: {}", e))?;
-
-    let mut stream = response.bytes_stream();
-
-    while let Some(chunk) = stream.next().await {
-        let chunk = chunk.map_err(|e| format!("Download error: {}", e))?;
-        file.write_all(&chunk)
-            .map_err(|e| format!("Failed to write chunk: {}", e))?;
-
-        downloaded += chunk.len() as u64;
-        let progress = if total_size > 0 {
-            (downloaded as f32 / total_size as f32) * 0.9 // 90% for model
-        } else {
-            0.5
+        // Use the sanitized path from the archive, preserving subfolders.
+        let out_path = match entry.enclosed_name() {
+            Some(name) => engine_dir.join(name),
+            None => continue,
         };
 
-        let _ = app.emit("piper-download-progress", DownloadProgress {
-            id: voice_id.clone(),
-            progress,
-            message: format!("Downloading... {:.1} MB", downloaded as f64 / 1_000_000.0),
-        });
+        if entry.name().ends_with('/') {
+            fs::create_dir_all(&out_path)
+                .map_err(|e| format!("Failed to create dir {:?}: {}", out_path, e))?;
+            continue;
+        }
+
+        if let Some(parent) = out_path.parent() {
+            fs::create_dir_all(parent)
+                .map_err(|e| format!("Failed to create dir {:?}: {}", parent, e))?;
+        }
+
+        let mut out_file = fs::File::create(&out_path)
+            .map_err(|e| format!("Failed to create file {:?}: {}", out_path, e))?;
+        std::io::copy(&mut entry, &mut out_file)
+            .map_err(|e| format!("Failed to extract {:?}: {}", out_path, e))?;
     }
 
-    drop(file);
+    // Clean up the archive.
+    let _ = fs::remove_file(&zip_path);
 
-    // Download config file
-    let _ = app.emit("piper-download-progress", DownloadProgress {
-        id: voice_id.clone(),
-        progress: 0.92,
-        message: "Downloading config...".to_string(),
-    });
-
-    let config_response = client
-        .get(&voice.config_url)
-        .send()
-        .await
-        .map_err(|e| format!("Failed to download config: {}", e))?;
-
-    let config_bytes = config_response
-        .bytes()
-        .await
-        .map_err(|e| format!("Failed to read config: {}", e))?;
-
-    let config_filename = format!("{}.json", model_filename);
-    let config_path = voices_dir.join(config_filename);
-    fs::write(&config_path, &config_bytes)
-        .map_err(|e| format!("Failed to write config: {}", e))?;
-
-    let _ = app.emit("piper-download-progress", DownloadProgress {
-        id: voice_id,
-        progress: 1.0,
-        message: "Complete!".to_string(),
-    });
+    let _ = app.emit(
+        "tts-download-progress",
+        DownloadProgress {
+            id: "tts".to_string(),
+            progress: 1.0,
+            message: "Complete!".to_string(),
+        },
+    );
 
     Ok(())
 }
 
-/// Delete a voice model
+/// Remove the engine and the synthesized-audio cache.
 #[tauri::command]
-pub async fn delete_voice(app: AppHandle, voice_id: String) -> Result<(), String> {
-    let voices = get_piper_voices(app.clone()).await?;
-    let voice = voices
-        .iter()
-        .find(|v| v.id == voice_id)
-        .ok_or_else(|| format!("Voice not found: {}", voice_id))?;
+pub async fn uninstall_tts(app: AppHandle) -> Result<(), String> {
+    let engine_dir = get_engine_dir(&app)?;
+    let cache_dir = get_cache_dir(&app)?;
 
-    let voices_dir = get_voices_dir(&app)?;
-
-    // Get the model filename from URL
-    let model_filename = voice
-        .download_url
-        .split('/')
-        .last()
-        .unwrap_or("");
-
-    if !model_filename.is_empty() {
-        let model_path = voices_dir.join(model_filename);
-        let config_path = voices_dir.join(format!("{}.json", model_filename));
-
-        if model_path.exists() {
-            fs::remove_file(&model_path)
-                .map_err(|e| format!("Failed to delete model: {}", e))?;
-        }
-
-        if config_path.exists() {
-            fs::remove_file(&config_path)
-                .map_err(|e| format!("Failed to delete config: {}", e))?;
-        }
+    if engine_dir.exists() {
+        fs::remove_dir_all(&engine_dir)
+            .map_err(|e| format!("Failed to remove engine: {}", e))?;
+    }
+    if cache_dir.exists() {
+        fs::remove_dir_all(&cache_dir)
+            .map_err(|e| format!("Failed to remove cache: {}", e))?;
     }
 
     Ok(())
 }
 
-/// Get total size of installed voices in bytes
+/// Total bytes used by the engine + cache directories.
 #[tauri::command]
-pub async fn get_piper_storage_size(app: AppHandle) -> Result<u64, String> {
-    let piper_dir = get_piper_dir(&app)?;
+pub async fn get_tts_storage_size(app: AppHandle) -> Result<u64, String> {
+    tts_storage_bytes(&app)
+}
 
-    if !piper_dir.exists() {
-        return Ok(0);
+/// Synthesize `text` in `lang` to a cached WAV and return its absolute path.
+/// Returns cached audio immediately when present; otherwise requires the engine
+/// to be installed (errors if not, so the front end can fall back to Web Speech),
+/// invokes the engine as a subprocess, and returns the resulting file path.
+#[tauri::command]
+pub async fn synthesize_tts(app: AppHandle, text: String, lang: String) -> Result<String, String> {
+    let cache_dir = get_cache_dir(&app)?;
+    fs::create_dir_all(&cache_dir)
+        .map_err(|e| format!("Failed to create cache dir: {}", e))?;
+
+    let out_path = cache_dir.join(cache_filename(&lang, &text));
+
+    // Cache hit.
+    if out_path.exists() {
+        return Ok(out_path.to_string_lossy().to_string());
     }
 
-    fn dir_size(path: &PathBuf) -> u64 {
-        let mut size = 0;
-        if let Ok(entries) = fs::read_dir(path) {
-            for entry in entries.flatten() {
-                let path = entry.path();
-                if path.is_dir() {
-                    size += dir_size(&path);
-                } else if let Ok(meta) = path.metadata() {
-                    size += meta.len();
-                }
-            }
-        }
-        size
+    // Need the engine to generate a cache miss.
+    let engine_exe = get_engine_exe(&app)?;
+    if !engine_exe.exists() {
+        return Err("TTS engine not installed".to_string());
     }
 
-    Ok(dir_size(&piper_dir))
+    let status = Command::new(&engine_exe)
+        .arg("--lang")
+        .arg(&lang)
+        .arg("--text")
+        .arg(&text)
+        .arg("--out")
+        .arg(&out_path)
+        .status()
+        .map_err(|e| format!("Failed to run TTS engine: {}", e))?;
+
+    if !status.success() {
+        return Err(format!("TTS engine exited with status {}", status));
+    }
+
+    if !out_path.exists() {
+        return Err("TTS engine did not produce an audio file".to_string());
+    }
+
+    Ok(out_path.to_string_lossy().to_string())
 }

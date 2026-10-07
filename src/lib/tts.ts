@@ -1,3 +1,5 @@
+import { invoke } from "@tauri-apps/api/core";
+import { convertFileSrc } from "@tauri-apps/api/core";
 import type { TTSVoice } from "@/types";
 
 // Check if Web Speech API is available
@@ -8,6 +10,164 @@ export interface SynthesizeOptions {
   rate?: number;  // 0.1 to 10, default 1
   pitch?: number; // 0 to 2, default 1
   volume?: number; // 0 to 1, default 1
+}
+
+// ============================================
+// MeloTTS engine (download-on-demand)
+// ============================================
+
+export interface TtsStatus {
+  installed: boolean;
+  sizeBytes: number;
+}
+
+export interface DownloadProgress {
+  id: string;
+  progress: number;
+  message: string;
+}
+
+/**
+ * Check whether the MeloTTS engine is installed and how much space it uses.
+ */
+export async function ttsStatus(): Promise<TtsStatus> {
+  return invoke<TtsStatus>("tts_status");
+}
+
+/**
+ * Download and install the MeloTTS engine.
+ * Listen to the 'tts-download-progress' event for progress updates.
+ */
+export async function installTts(): Promise<void> {
+  return invoke("install_tts");
+}
+
+/**
+ * Remove the MeloTTS engine and its audio cache.
+ */
+export async function uninstallTts(): Promise<void> {
+  return invoke("uninstall_tts");
+}
+
+/**
+ * Total storage used by the engine + audio cache, in bytes.
+ */
+export async function getTtsStorageSize(): Promise<number> {
+  return invoke<number>("get_tts_storage_size");
+}
+
+/**
+ * Synthesize text to a cached WAV via the MeloTTS engine and return the file path.
+ * Throws if the engine is not installed (so callers can fall back to Web Speech).
+ */
+export async function synthesizeTts(text: string, lang: string): Promise<string> {
+  return invoke<string>("synthesize_tts", { text, lang });
+}
+
+/**
+ * Format bytes to a human-readable string.
+ */
+export function formatBytes(bytes: number): string {
+  if (bytes === 0) return "0 B";
+  const k = 1024;
+  const sizes = ["B", "KB", "MB", "GB"];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
+}
+
+// ============================================
+// Unified playback (MeloTTS with Web Speech fallback)
+// ============================================
+
+// The currently playing MeloTTS audio element, so stopSpeaking() can cancel it.
+let currentAudio: HTMLAudioElement | null = null;
+
+// Remembers whether the engine is installed so we don't invoke a failing command
+// on every card. Reset lazily if a MeloTTS call fails.
+let engineAvailable: boolean | null = null;
+
+async function isEngineAvailable(): Promise<boolean> {
+  if (engineAvailable !== null) return engineAvailable;
+  try {
+    const status = await ttsStatus();
+    engineAvailable = status.installed;
+  } catch {
+    engineAvailable = false;
+  }
+  return engineAvailable;
+}
+
+/**
+ * Reset the cached engine-availability flag. Call after install/uninstall so the
+ * next speak() re-checks whether MeloTTS is present.
+ */
+export function resetEngineAvailability(): void {
+  engineAvailable = null;
+}
+
+/**
+ * Play a MeloTTS-generated WAV via an HTMLAudioElement.
+ * Resolves when playback ends; rejects on load/playback failure.
+ */
+function playAudioFile(path: string, volume: number): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const src = convertFileSrc(path);
+    const audio = new Audio(src);
+    audio.volume = Math.max(0, Math.min(1, volume));
+    currentAudio = audio;
+
+    const cleanup = () => {
+      if (currentAudio === audio) {
+        currentAudio = null;
+      }
+    };
+
+    audio.onended = () => {
+      cleanup();
+      resolve();
+    };
+    audio.onerror = () => {
+      cleanup();
+      reject(new Error("Failed to play synthesized audio"));
+    };
+
+    audio.play().catch((err) => {
+      cleanup();
+      reject(err instanceof Error ? err : new Error("Failed to start audio playback"));
+    });
+  });
+}
+
+/**
+ * Speak text, preferring the MeloTTS engine when installed and falling back to
+ * the Web Speech API on any failure or when the engine is absent.
+ *
+ * `lang` is a MeloTTS language code (en, es, fr, zh, ja, ko) used by the engine.
+ * `options` carries the Web Speech voice/rate/pitch/volume used by the fallback
+ * path (and `volume` also applies to MeloTTS audio playback).
+ */
+export async function speak(
+  text: string,
+  lang: string = "en",
+  options: SynthesizeOptions = { voice: "" }
+): Promise<void> {
+  if (!text.trim()) return;
+
+  const volume = options.volume ?? 1;
+
+  if (await isEngineAvailable()) {
+    try {
+      const path = await synthesizeTts(text, lang);
+      await playAudioFile(path, volume);
+      return;
+    } catch (err) {
+      // Engine missing or synthesis failed — fall through to Web Speech.
+      console.warn("MeloTTS synthesis failed, falling back to Web Speech:", err);
+      engineAvailable = null; // re-check next time
+    }
+  }
+
+  await speakWithWebSpeech(text, options);
 }
 
 // Cache for available voices
@@ -95,10 +255,10 @@ function findVoice(voiceId: string): SpeechSynthesisVoice | null {
 }
 
 /**
- * Synthesize text to speech using Web Speech API
+ * Synthesize text to speech using the Web Speech API (fallback path).
  * Returns a promise that resolves when speech is complete
  */
-export function speak(text: string, options: SynthesizeOptions): Promise<void> {
+function speakWithWebSpeech(text: string, options: SynthesizeOptions): Promise<void> {
   return new Promise((resolve, reject) => {
     if (!isSpeechSynthesisAvailable) {
       reject(new Error("Speech synthesis not available"));
@@ -183,9 +343,15 @@ export function speak(text: string, options: SynthesizeOptions): Promise<void> {
 }
 
 /**
- * Stop any ongoing speech
+ * Stop any ongoing speech (both MeloTTS audio and Web Speech).
  */
 export function stopSpeaking(): void {
+  if (currentAudio) {
+    currentAudio.pause();
+    currentAudio.onended = null;
+    currentAudio.onerror = null;
+    currentAudio = null;
+  }
   if (isSpeechSynthesisAvailable) {
     speechSynthesis.cancel();
   }
@@ -195,7 +361,8 @@ export function stopSpeaking(): void {
  * Check if currently speaking
  */
 export function isSpeaking(): boolean {
-  return isSpeechSynthesisAvailable && speechSynthesis.speaking;
+  const audioPlaying = currentAudio !== null && !currentAudio.paused;
+  return audioPlaying || (isSpeechSynthesisAvailable && speechSynthesis.speaking);
 }
 
 // Recommended voices - these will be populated dynamically based on system

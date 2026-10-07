@@ -121,13 +121,11 @@ pub fn run() {
             commands::transfer::import_course_from_file,
             commands::transfer::export_course_to_json,
             // TTS commands
-            commands::tts::is_piper_installed,
-            commands::tts::get_piper_voices,
-            commands::tts::install_piper,
-            commands::tts::uninstall_piper,
-            commands::tts::download_voice,
-            commands::tts::delete_voice,
-            commands::tts::get_piper_storage_size,
+            commands::tts::tts_status,
+            commands::tts::install_tts,
+            commands::tts::uninstall_tts,
+            commands::tts::get_tts_storage_size,
+            commands::tts::synthesize_tts,
             // Notebook commands
             commands::notebooks::get_all_notebooks,
             commands::notebooks::get_notebook,

@@ -216,7 +216,7 @@ export function useAutoplay({ cards, onComplete }: UseAutoplayOptions): UseAutop
       setIsSpeakingState(true);
       setError(null);
       try {
-        await speak(text, {
+        await speak(text, "en", {
           voice: voiceRef.current,
           rate: 1,
           pitch: 1,

@@ -27,7 +27,7 @@ export { DeckCard, QuizCard, CourseCard } from "./cards";
 export { ShortcutHint, InlineShortcutHint, ShortcutsHelp } from "./shortcuts";
 
 // Settings components
-export { PiperSettings } from "./PiperSettings";
+export { TtsSettings } from "./TtsSettings";
 
 // Quick Switcher
 export { QuickSwitcher } from "./QuickSwitcher";
