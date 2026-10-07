@@ -278,13 +278,21 @@ fn is_argon2_hash(hash: &str) -> bool {
 /// Verify a password against a v1.0.0 hash, which was an unsalted 64-bit
 /// DefaultHasher digest. Kept only so existing users can log in once more,
 /// after which their hash is upgraded to Argon2.
+///
+/// SECURITY: the digests are compared in constant time (`subtle::ConstantTimeEq`)
+/// so this legacy path leaks no timing signal. The underlying hash is still a
+/// weak non-crypto 64-bit digest — the mitigation here is the compare; the real
+/// fix is the upgrade-on-login to Argon2 performed by the caller.
 fn verify_legacy_password(password: &str, hash: &str) -> bool {
     use std::collections::hash_map::DefaultHasher;
     use std::hash::{Hash, Hasher};
+    use subtle::ConstantTimeEq;
 
     let mut hasher = DefaultHasher::new();
     password.hash(&mut hasher);
-    format!("{:x}", hasher.finish()) == hash
+    let computed = format!("{:x}", hasher.finish());
+
+    computed.as_bytes().ct_eq(hash.as_bytes()).into()
 }
 
 #[cfg(test)]
