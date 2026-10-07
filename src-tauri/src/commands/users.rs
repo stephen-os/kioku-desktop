@@ -1,6 +1,20 @@
+use rusqlite::Connection;
 use tauri::State;
 
 use crate::db::{self, CreateUserRequest, DbState, LocalUser};
+
+/// SECURITY: resolve the logged-in user and confirm the request targets their
+/// own record. Default-deny: no active user, or a mismatch, is rejected. This
+/// is the Rust-side authorization gate for self-service account commands, which
+/// previously trusted the (client-only) React login state and would operate on
+/// any profile by id.
+fn require_self(conn: &Connection, target_user_id: &str) -> Result<(), String> {
+    let active = db::get_active_user(conn)?.ok_or_else(|| "No active user".to_string())?;
+    if active.id != target_user_id {
+        return Err("Access denied".to_string());
+    }
+    Ok(())
+}
 
 #[tauri::command]
 pub fn get_all_users(state: State<DbState>) -> Result<Vec<LocalUser>, String> {
@@ -45,6 +59,7 @@ pub fn logout_user(state: State<DbState>) -> Result<(), String> {
 #[tauri::command]
 pub fn delete_user(state: State<DbState>, user_id: String) -> Result<(), String> {
     let conn = state.0.lock().map_err(|e| format!("Lock error: {}", e))?;
+    require_self(&conn, &user_id)?;
     db::delete_user(&conn, &user_id)
 }
 
@@ -57,11 +72,13 @@ pub fn update_user(
     avatar: Option<String>,
 ) -> Result<LocalUser, String> {
     let conn = state.0.lock().map_err(|e| format!("Lock error: {}", e))?;
+    require_self(&conn, &user_id)?;
     db::update_user(&conn, &user_id, &name, password.as_deref(), avatar.as_deref())
 }
 
 #[tauri::command]
 pub fn remove_user_password(state: State<DbState>, user_id: String) -> Result<LocalUser, String> {
     let conn = state.0.lock().map_err(|e| format!("Lock error: {}", e))?;
+    require_self(&conn, &user_id)?;
     db::remove_user_password(&conn, &user_id)
 }

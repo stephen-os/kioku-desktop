@@ -31,19 +31,22 @@ pub fn create_quiz(conn: &Connection, user_id: &str, request: &CreateQuizRequest
     )
     .map_err(|e| format!("Failed to create quiz: {}", e))?;
 
-    get_quiz(conn, &id)
+    get_quiz(conn, user_id, &id)
 }
 
-pub fn get_quiz(conn: &Connection, quiz_id: &str) -> Result<Quiz, String> {
+/// SECURITY: owner-scoped read. Only returns the quiz when it belongs to
+/// `user_id`; a quiz owned by another local user is reported as "not found",
+/// matching the default-deny posture of `delete_quiz`.
+pub fn get_quiz(conn: &Connection, user_id: &str, quiz_id: &str) -> Result<Quiz, String> {
     let mut stmt = conn
         .prepare(
             "SELECT id, name, description, shuffle_questions, created_at, updated_at
-             FROM quizzes WHERE id = ?1",
+             FROM quizzes WHERE id = ?1 AND user_id = ?2",
         )
         .map_err(|e| format!("Failed to prepare query: {}", e))?;
 
     let quiz = stmt
-        .query_row(params![quiz_id], |row| {
+        .query_row(params![quiz_id, user_id], |row| {
             Ok(Quiz {
                 id: row.get(0)?,
                 name: row.get(1)?,
@@ -103,22 +106,30 @@ pub fn get_all_quizzes(conn: &Connection, user_id: &str) -> Result<Vec<Quiz>, St
     Ok(quizzes)
 }
 
+/// SECURITY: owner-scoped update. The WHERE clause is scoped to `user_id` so a
+/// user cannot edit another local user's quiz; zero rows affected is rejected.
 pub fn update_quiz(
     conn: &Connection,
+    user_id: &str,
     quiz_id: &str,
     request: &UpdateQuizRequest,
 ) -> Result<Quiz, String> {
     let now = chrono::Utc::now().to_rfc3339();
     let shuffle = request.shuffle_questions.unwrap_or(false);
 
-    conn.execute(
-        "UPDATE quizzes SET name = ?1, description = ?2, shuffle_questions = ?3, updated_at = ?4
-         WHERE id = ?5",
-        params![request.name, request.description, shuffle as i32, now, quiz_id],
-    )
-    .map_err(|e| format!("Failed to update quiz: {}", e))?;
+    let rows_affected = conn
+        .execute(
+            "UPDATE quizzes SET name = ?1, description = ?2, shuffle_questions = ?3, updated_at = ?4
+             WHERE id = ?5 AND user_id = ?6",
+            params![request.name, request.description, shuffle as i32, now, quiz_id, user_id],
+        )
+        .map_err(|e| format!("Failed to update quiz: {}", e))?;
 
-    get_quiz(conn, quiz_id)
+    if rows_affected == 0 {
+        return Err("Quiz not found or access denied".to_string());
+    }
+
+    get_quiz(conn, user_id, quiz_id)
 }
 
 pub fn delete_quiz(conn: &Connection, user_id: &str, quiz_id: &str) -> Result<(), String> {
@@ -573,5 +584,88 @@ pub fn toggle_quiz_favorite(conn: &Connection, user_id: &str, quiz_id: &str) -> 
     } else {
         add_quiz_favorite(conn, user_id, quiz_id)?;
         Ok(true)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// In-memory DB with the quiz tables `get_quiz` reads (questions/choices/
+    /// tags stay empty; owner-scoping lives on the `quizzes` row).
+    fn db() -> Connection {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE quizzes (
+                id TEXT PRIMARY KEY,
+                user_id TEXT,
+                name TEXT NOT NULL,
+                description TEXT,
+                shuffle_questions INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            CREATE TABLE questions (
+                id TEXT PRIMARY KEY, quiz_id TEXT NOT NULL, question_type TEXT NOT NULL,
+                content TEXT NOT NULL, content_type TEXT NOT NULL DEFAULT 'TEXT',
+                content_language TEXT, correct_answer TEXT,
+                multiple_answers INTEGER NOT NULL DEFAULT 0, explanation TEXT,
+                position INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+            );
+            CREATE TABLE choices (
+                id TEXT PRIMARY KEY, question_id TEXT NOT NULL, text TEXT NOT NULL,
+                is_correct INTEGER NOT NULL DEFAULT 0, position INTEGER NOT NULL DEFAULT 0
+            );
+            CREATE TABLE quiz_tags (
+                id TEXT PRIMARY KEY, quiz_id TEXT NOT NULL, name TEXT NOT NULL
+            );
+            CREATE TABLE question_tags (
+                question_id TEXT NOT NULL, tag_id TEXT NOT NULL, PRIMARY KEY (question_id, tag_id)
+            );",
+        )
+        .unwrap();
+        conn
+    }
+
+    fn new_quiz(name: &str) -> CreateQuizRequest {
+        CreateQuizRequest {
+            name: name.to_string(),
+            description: None,
+            shuffle_questions: Some(false),
+        }
+    }
+
+    #[test]
+    fn get_quiz_is_owner_scoped() {
+        let conn = db();
+        let quiz = create_quiz(&conn, "owner", &new_quiz("Mine")).unwrap();
+
+        assert!(get_quiz(&conn, "owner", &quiz.id).is_ok());
+        // A different local user is told it does not exist.
+        assert!(get_quiz(&conn, "attacker", &quiz.id).is_err());
+    }
+
+    #[test]
+    fn update_quiz_rejects_non_owner() {
+        let conn = db();
+        let quiz = create_quiz(&conn, "owner", &new_quiz("Mine")).unwrap();
+
+        let req = UpdateQuizRequest {
+            name: "Pwned".to_string(),
+            description: None,
+            shuffle_questions: Some(false),
+        };
+        let err = update_quiz(&conn, "attacker", &quiz.id, &req)
+            .expect_err("non-owner update must be denied");
+        assert!(err.contains("access denied") || err.contains("not found"));
+
+        // The row is untouched and the owner can still edit it.
+        assert_eq!(get_quiz(&conn, "owner", &quiz.id).unwrap().name, "Mine");
+        let ok = UpdateQuizRequest {
+            name: "Renamed".to_string(),
+            description: None,
+            shuffle_questions: Some(false),
+        };
+        assert_eq!(update_quiz(&conn, "owner", &quiz.id, &ok).unwrap().name, "Renamed");
     }
 }

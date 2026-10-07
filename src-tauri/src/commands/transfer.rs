@@ -124,7 +124,7 @@ pub fn import_deck_from_file(
             }
         }
 
-        let final_deck = db::get_deck(&conn, &deck.id)?
+        let final_deck = db::get_deck(&conn, &active_user.id, &deck.id)?
             .ok_or_else(|| "Failed to retrieve imported deck".to_string())?;
         Ok(ImportResult {
             deck: final_deck,
@@ -149,7 +149,10 @@ pub fn import_deck_from_file(
 pub fn export_deck_to_json(state: State<DbState>, deck_id: String) -> Result<String, String> {
     let conn = state.0.lock().map_err(|e| format!("Lock error: {}", e))?;
 
-    let deck = db::get_deck(&conn, &deck_id)?
+    // SECURITY: only the active user may export their own deck.
+    let active_user = db::get_active_user(&conn)?
+        .ok_or_else(|| "No active user".to_string())?;
+    let deck = db::get_deck(&conn, &active_user.id, &deck_id)?
         .ok_or_else(|| format!("Deck not found: {}", deck_id))?;
     let cards = db::get_cards_for_deck(&conn, &deck_id)?;
 
@@ -207,7 +210,10 @@ pub fn export_deck_to_json(state: State<DbState>, deck_id: String) -> Result<Str
 pub fn export_quiz_to_json(state: State<DbState>, quiz_id: String) -> Result<String, String> {
     let conn = state.0.lock().map_err(|e| format!("Lock error: {}", e))?;
 
-    let quiz = db::get_quiz(&conn, &quiz_id)?;
+    // SECURITY: only the active user may export their own quiz.
+    let active_user = db::get_active_user(&conn)?
+        .ok_or_else(|| "No active user".to_string())?;
+    let quiz = db::get_quiz(&conn, &active_user.id, &quiz_id)?;
 
     #[derive(serde::Serialize)]
     #[serde(rename_all = "camelCase")]
@@ -399,7 +405,7 @@ pub fn import_quiz_from_file(
             }
         }
 
-        let final_quiz = db::get_quiz(&conn, &quiz.id)?;
+        let final_quiz = db::get_quiz(&conn, &active_user.id, &quiz.id)?;
         Ok(QuizImportResult {
             quiz: final_quiz,
             questions_imported: questions_count,
@@ -861,7 +867,7 @@ pub fn export_course_to_json(state: State<DbState>, course_id: String) -> Result
     // Export all referenced decks
     let mut decks_export: Vec<DeckExport> = Vec::new();
     for deck_id in deck_ids {
-        if let Some(deck) = db::get_deck(&conn, &deck_id)? {
+        if let Some(deck) = db::get_deck(&conn, &active_user.id, &deck_id)? {
             let cards = db::get_cards_for_deck(&conn, &deck_id)?;
             decks_export.push(DeckExport {
                 name: deck.name,
@@ -887,7 +893,7 @@ pub fn export_course_to_json(state: State<DbState>, course_id: String) -> Result
     // Export all referenced quizzes
     let mut quizzes_export: Vec<QuizExport> = Vec::new();
     for quiz_id in quiz_ids {
-        let quiz = db::get_quiz(&conn, &quiz_id)?;
+        let quiz = db::get_quiz(&conn, &active_user.id, &quiz_id)?;
         quizzes_export.push(QuizExport {
             name: quiz.name,
             description: quiz.description,

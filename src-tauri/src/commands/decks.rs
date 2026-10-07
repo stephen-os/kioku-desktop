@@ -20,7 +20,9 @@ pub fn get_all_decks(state: State<DbState>) -> Result<Vec<Deck>, String> {
 #[tauri::command]
 pub fn get_deck(state: State<DbState>, id: String) -> Result<Option<Deck>, String> {
     let conn = state.0.lock().map_err(|e| format!("Lock error: {}", e))?;
-    db::get_deck(&conn, &id)
+    let active_user = db::get_active_user(&conn)?
+        .ok_or_else(|| "No active user".to_string())?;
+    db::get_deck(&conn, &active_user.id, &id)
 }
 
 #[tauri::command]
@@ -44,8 +46,11 @@ pub fn update_deck(
     request: UpdateDeckRequest,
 ) -> Result<Deck, String> {
     let conn = state.0.lock().map_err(|e| format!("Lock error: {}", e))?;
+    let active_user = db::get_active_user(&conn)?
+        .ok_or_else(|| "No active user".to_string())?;
     db::update_deck(
         &conn,
+        &active_user.id,
         &id,
         &request.name,
         request.description.as_deref(),

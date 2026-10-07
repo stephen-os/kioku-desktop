@@ -33,7 +33,7 @@ pub fn create_deck(
     )
     .map_err(|e| format!("Failed to create deck: {}", e))?;
 
-    get_deck(conn, &id)?
+    get_deck(conn, user_id, &id)?
         .ok_or_else(|| "Failed to retrieve created deck".to_string())
 }
 
@@ -68,11 +68,14 @@ pub fn get_all_decks(conn: &Connection, user_id: &str) -> Result<Vec<Deck>, Stri
         .map_err(|e| format!("Failed to collect decks: {}", e))
 }
 
-pub fn get_deck(conn: &Connection, id: &str) -> Result<Option<Deck>, String> {
+/// SECURITY: owner-scoped read. Only returns the deck when it belongs to
+/// `user_id`; a deck owned by another local user reads as `None` (not found),
+/// matching the default-deny posture of `delete_deck`.
+pub fn get_deck(conn: &Connection, user_id: &str, id: &str) -> Result<Option<Deck>, String> {
     match conn.query_row(
         "SELECT id, name, description, shuffle_cards, created_at, updated_at
-         FROM decks WHERE id = ?1",
-        params![id],
+         FROM decks WHERE id = ?1 AND user_id = ?2",
+        params![id, user_id],
         |row| {
             Ok(Deck {
                 id: row.get(0)?,
@@ -92,8 +95,11 @@ pub fn get_deck(conn: &Connection, id: &str) -> Result<Option<Deck>, String> {
     }
 }
 
+/// SECURITY: owner-scoped update. The WHERE clause is scoped to `user_id` so a
+/// user cannot edit another local user's deck; zero rows affected is rejected.
 pub fn update_deck(
     conn: &Connection,
+    user_id: &str,
     id: &str,
     name: &str,
     description: Option<&str>,
@@ -101,14 +107,19 @@ pub fn update_deck(
 ) -> Result<Deck, String> {
     let now = chrono::Utc::now().to_rfc3339();
 
-    conn.execute(
-        "UPDATE decks SET name = ?1, description = ?2, shuffle_cards = ?3, updated_at = ?4
-         WHERE id = ?5",
-        params![name, description, shuffle_cards as i32, now, id],
-    )
-    .map_err(|e| format!("Failed to update deck: {}", e))?;
+    let rows_affected = conn
+        .execute(
+            "UPDATE decks SET name = ?1, description = ?2, shuffle_cards = ?3, updated_at = ?4
+             WHERE id = ?5 AND user_id = ?6",
+            params![name, description, shuffle_cards as i32, now, id, user_id],
+        )
+        .map_err(|e| format!("Failed to update deck: {}", e))?;
 
-    get_deck(conn, id)?
+    if rows_affected == 0 {
+        return Err("Deck not found or access denied".to_string());
+    }
+
+    get_deck(conn, user_id, id)?
         .ok_or_else(|| format!("Deck not found after update: {}", id))
 }
 
@@ -473,5 +484,56 @@ pub fn toggle_deck_favorite(conn: &Connection, user_id: &str, deck_id: &str) -> 
     } else {
         add_deck_favorite(conn, user_id, deck_id)?;
         Ok(true)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// In-memory DB with just the `decks` columns the owner-scoping touches.
+    fn db() -> Connection {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE decks (
+                id TEXT PRIMARY KEY,
+                user_id TEXT,
+                name TEXT NOT NULL,
+                description TEXT,
+                shuffle_cards INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );",
+        )
+        .unwrap();
+        conn
+    }
+
+    #[test]
+    fn get_deck_is_owner_scoped() {
+        let conn = db();
+        let deck = create_deck(&conn, "owner", "Mine", None, false).unwrap();
+
+        assert!(get_deck(&conn, "owner", &deck.id).unwrap().is_some());
+        // A different local user cannot read it.
+        assert!(get_deck(&conn, "attacker", &deck.id).unwrap().is_none());
+    }
+
+    #[test]
+    fn update_deck_rejects_non_owner() {
+        let conn = db();
+        let deck = create_deck(&conn, "owner", "Mine", None, false).unwrap();
+
+        let err = update_deck(&conn, "attacker", &deck.id, "Pwned", None, false)
+            .expect_err("non-owner update must be denied");
+        assert!(err.contains("access denied") || err.contains("not found"));
+
+        // The row is untouched.
+        let still = get_deck(&conn, "owner", &deck.id).unwrap().unwrap();
+        assert_eq!(still.name, "Mine");
+
+        // The owner can still update their own deck.
+        let updated = update_deck(&conn, "owner", &deck.id, "Renamed", None, false).unwrap();
+        assert_eq!(updated.name, "Renamed");
     }
 }

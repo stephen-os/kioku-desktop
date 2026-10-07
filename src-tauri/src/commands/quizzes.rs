@@ -80,7 +80,9 @@ pub fn get_all_quizzes(state: State<DbState>) -> Result<Vec<Quiz>, String> {
 #[tauri::command]
 pub fn get_quiz(state: State<DbState>, quiz_id: String) -> Result<Quiz, String> {
     let conn = state.0.lock().map_err(|e| format!("Lock error: {}", e))?;
-    db::get_quiz(&conn, &quiz_id)
+    let active_user = db::get_active_user(&conn)?
+        .ok_or_else(|| "No active user".to_string())?;
+    db::get_quiz(&conn, &active_user.id, &quiz_id)
 }
 
 #[tauri::command]
@@ -98,7 +100,9 @@ pub fn update_quiz(
     request: UpdateQuizRequest,
 ) -> Result<Quiz, String> {
     let conn = state.0.lock().map_err(|e| format!("Lock error: {}", e))?;
-    db::update_quiz(&conn, &quiz_id, &request)
+    let active_user = db::get_active_user(&conn)?
+        .ok_or_else(|| "No active user".to_string())?;
+    db::update_quiz(&conn, &active_user.id, &quiz_id, &request)
 }
 
 #[tauri::command]
