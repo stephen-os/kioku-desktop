@@ -1,6 +1,6 @@
 [package]
 name = "kioku-desktop"
-version = "1.0.0"
+version = "2.0.0"
 description = "A flashcard study app"
 authors = ["Stephen"]
 edition = "2021"
