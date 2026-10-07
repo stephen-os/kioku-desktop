@@ -27,7 +27,7 @@
       "csp": null,
       "assetProtocol": {
         "enable": true,
-        "scope": ["$APPDATA/**", "$APPDATA/images/**"]
+        "scope": ["$APPDATA/tts/cache/**", "$APPDATA/images/**"]
       }
     }
   },
