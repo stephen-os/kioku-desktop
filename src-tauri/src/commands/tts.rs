@@ -1,5 +1,6 @@
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::collections::hash_map::DefaultHasher;
 use std::fs;
 use std::hash::{Hash, Hasher};
@@ -16,7 +17,20 @@ use tauri::{AppHandle, Emitter, Manager};
 ///
 /// TODO(KIOKU_TTS_RELEASE_URL): set this to the hosted release ZIP URL, e.g.
 /// "https://github.com/stephen-os/kioku-desktop/releases/download/tts-v1/kioku-tts-windows.zip"
+///
+/// SECURITY: this URL MUST be `https` (enforced at install time) and MUST be set
+/// together with `EXPECTED_TTS_SHA256` below — the two placeholders are a pair.
+/// Shipping a real URL without the matching hash (or vice versa) is a mistake:
+/// `install_tts` fails closed if either is still a placeholder.
 const KIOKU_TTS_RELEASE_URL: &str = "TODO_SET_AFTER_HOSTING";
+
+/// SECURITY: pinned lowercase hex SHA-256 of the exact release ZIP named by
+/// `KIOKU_TTS_RELEASE_URL`. The downloaded archive is verified against this
+/// digest *before* it is extracted and the engine executable is ever run, so a
+/// compromised release host / account / CDN cannot deliver a trojaned engine.
+/// MUST be set in lockstep with `KIOKU_TTS_RELEASE_URL` (see the note above);
+/// until the artifact is hosted both stay placeholders and install is disabled.
+const EXPECTED_TTS_SHA256: &str = "TODO_SET_AFTER_HOSTING";
 
 /// Progress payload emitted on the `tts-download-progress` event during install.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -114,8 +128,19 @@ fn tts_storage_bytes(app: &AppHandle) -> Result<u64, String> {
 /// release URL is still the placeholder.
 #[tauri::command]
 pub async fn install_tts(app: AppHandle) -> Result<(), String> {
-    if KIOKU_TTS_RELEASE_URL == "TODO_SET_AFTER_HOSTING" {
+    // SECURITY: fail closed unless both the URL and the pinned hash are set.
+    // They are a pair (see the constants above); refusing when either is still
+    // a placeholder prevents an unverified download from ever being extracted.
+    if KIOKU_TTS_RELEASE_URL == "TODO_SET_AFTER_HOSTING"
+        || EXPECTED_TTS_SHA256 == "TODO_SET_AFTER_HOSTING"
+    {
         return Err("TTS engine not yet available".to_string());
+    }
+
+    // SECURITY: only fetch the engine over TLS. Reject anything that is not an
+    // https URL so the download cannot be downgraded to cleartext.
+    if !KIOKU_TTS_RELEASE_URL.starts_with("https://") {
+        return Err("Refusing to download TTS engine over a non-HTTPS URL".to_string());
     }
 
     let engine_dir = get_engine_dir(&app)?;
@@ -146,12 +171,16 @@ pub async fn install_tts(app: AppHandle) -> Result<(), String> {
     let mut file =
         fs::File::create(&zip_path).map_err(|e| format!("Failed to create zip file: {}", e))?;
 
+    // SECURITY: hash the bytes as they stream so we can verify integrity before
+    // extracting anything from the archive.
+    let mut hasher = Sha256::new();
     let mut stream = response.bytes_stream();
 
     while let Some(chunk) = stream.next().await {
         let chunk = chunk.map_err(|e| format!("Download error: {}", e))?;
         file.write_all(&chunk)
             .map_err(|e| format!("Failed to write chunk: {}", e))?;
+        hasher.update(&chunk);
 
         downloaded += chunk.len() as u64;
         let progress = if total_size > 0 {
@@ -171,6 +200,15 @@ pub async fn install_tts(app: AppHandle) -> Result<(), String> {
     }
 
     drop(file);
+
+    // SECURITY: verify the downloaded archive against the pinned SHA-256 before
+    // extracting or executing anything. On mismatch, delete the file and fail
+    // closed — a compromised host/CDN/account cannot deliver a trojaned engine.
+    let actual_digest = format!("{:x}", hasher.finalize());
+    if !actual_digest.eq_ignore_ascii_case(EXPECTED_TTS_SHA256) {
+        let _ = fs::remove_file(&zip_path);
+        return Err("TTS engine failed integrity check (SHA-256 mismatch)".to_string());
+    }
 
     // Extract the ZIP, preserving its internal directory structure (the engine
     // ships models and support files in subfolders).
