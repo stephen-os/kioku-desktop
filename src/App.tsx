@@ -1,5 +1,7 @@
-import { lazy, Suspense, useState } from "react";
+import { lazy, Suspense, useState, useEffect } from "react";
 import { Routes, Route, Navigate, useNavigate } from "react-router-dom";
+import { ttsWarmup } from "./lib/tts";
+import { isTauri } from "./lib/auth";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import { ToastProvider } from "./context/ToastContext";
 import { SettingsProvider } from "./context/SettingsContext";
@@ -195,6 +197,15 @@ function AppRoutes() {
 }
 
 function App() {
+  // Warm up the TTS engine in the background at launch (start the daemon +
+  // preload the English model) so study/autoplay is responsive. Best-effort;
+  // no-op if the engine isn't installed.
+  useEffect(() => {
+    if (isTauri()) {
+      ttsWarmup("en").catch(() => {});
+    }
+  }, []);
+
   return (
     <ErrorBoundary>
       <ToastProvider>

@@ -211,12 +211,12 @@ export function useAutoplay({ cards, onComplete }: UseAutoplayOptions): UseAutop
       return cards[cardIdx] ?? null;
     };
 
-    const speakTextAsync = async (text: string): Promise<void> => {
+    const speakTextAsync = async (text: string, lang: string): Promise<void> => {
       if (!text.trim()) return;
       setIsSpeakingState(true);
       setError(null);
       try {
-        await speak(text, "en", {
+        await speak(text, lang, {
           voice: voiceRef.current,
           rate: 1,
           pitch: 1,
@@ -291,7 +291,7 @@ export function useAutoplay({ cards, onComplete }: UseAutoplayOptions): UseAutop
           setPhase("front");
           const frontText = prepareTextForTTS(card.front, card.frontType);
           console.log("[Autoplay] Front text:", frontText.substring(0, 50));
-          await speakTextAsync(frontText);
+          await speakTextAsync(frontText, card.ttsLang ?? "en");
 
           if (isCancelled || !isPlayingRef.current) return false;
         }
@@ -310,7 +310,7 @@ export function useAutoplay({ cards, onComplete }: UseAutoplayOptions): UseAutop
         if (shouldShowBack) {
           setPhase("back");
           const backText = prepareTextForTTS(card.back, card.backType);
-          await speakTextAsync(backText);
+          await speakTextAsync(backText, card.ttsLang ?? "en");
 
           if (isCancelled || !isPlayingRef.current) return false;
         }

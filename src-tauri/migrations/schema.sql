@@ -114,6 +114,7 @@ CREATE TABLE IF NOT EXISTS cards (
     back_type TEXT NOT NULL DEFAULT 'TEXT',
     back_language TEXT,
     notes TEXT,
+    tts_lang TEXT,  -- Spoken language for read-aloud (en/es/fr/zh/ja/ko); NULL => English
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     remote_id INTEGER,  -- Legacy: unused, kept for compatibility

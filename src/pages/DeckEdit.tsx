@@ -9,8 +9,9 @@ import type {
   UpdateCardRequest,
   ContentType,
   CodeLanguage,
+  TtsLang,
 } from "@/types";
-import { CODE_LANGUAGES, CODE_LANGUAGE_LABELS } from "@/types";
+import { CODE_LANGUAGES, CODE_LANGUAGE_LABELS, TTS_LANGUAGES } from "@/types";
 import { BackButton } from "@/components";
 import {
   getDeck,
@@ -469,6 +470,7 @@ function CardModal({ card, deckId, deckTags, onSave, onClose, onTagsChange }: Ca
     card?.backLanguage || null
   );
   const [notes, setNotes] = useState(card?.notes || "");
+  const [ttsLang, setTtsLang] = useState<TtsLang>((card?.ttsLang as TtsLang) || "en");
   const [saving, setSaving] = useState(false);
 
   // Tag editing state
@@ -590,6 +592,7 @@ function CardModal({ card, deckId, deckTags, onSave, onClose, onTagsChange }: Ca
         backType,
         backLanguage: backType === "CODE" ? backLanguage || undefined : undefined,
         notes: notes.trim() || undefined,
+        ttsLang,
       };
 
       onSave(request);
@@ -759,6 +762,27 @@ function CardModal({ card, deckId, deckTags, onSave, onClose, onTagsChange }: Ca
               className="w-full px-3 py-2 bg-[#2d2a2e] border border-[#5b595c] rounded-lg text-[#fcfcfa] placeholder-[#939293] focus:outline-none focus:border-[#ffd866] resize-none"
             />
           </div>
+
+          {/* Spoken language (read-aloud) — applies to text sides; code is not read */}
+          {(frontType === "TEXT" || backType === "TEXT") && (
+            <div>
+              <label className="block text-sm font-medium text-[#939293] mb-2">
+                Spoken language
+              </label>
+              <select
+                value={ttsLang}
+                onChange={(e) => setTtsLang(e.target.value as TtsLang)}
+                className="px-3 py-2 bg-[#2d2a2e] border border-[#5b595c] rounded-lg text-[#fcfcfa] text-sm focus:outline-none focus:border-[#ffd866]"
+              >
+                {TTS_LANGUAGES.map((l) => (
+                  <option key={l.code} value={l.code}>
+                    {l.label}
+                  </option>
+                ))}
+              </select>
+              <p className="mt-1 text-xs text-[#6b696b]">Voice used when reading this card aloud.</p>
+            </div>
+          )}
 
           {/* Tags */}
           <div>

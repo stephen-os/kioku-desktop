@@ -8,7 +8,7 @@ import { isTauri } from "@/lib/auth";
 import { CodeBlock } from "@/components/CodeEditor";
 import { BackButton } from "@/components";
 import { useToast } from "@/context/ToastContext";
-import { speak, stopSpeaking, textForSpeech } from "@/lib/tts";
+import { speak, stopSpeaking, textForSpeech, prefetchTts } from "@/lib/tts";
 
 // Persisted toggle: auto-read each card side aloud as you study.
 const AUTO_READ_KEY = "kioku-study-autoread";
@@ -276,13 +276,13 @@ export function StudyMode() {
   const currentCard = cards[currentIndex];
   const progress = cards.length > 0 ? ((currentIndex + 1) / cards.length) * 100 : 0;
 
-  // Read the currently-visible side aloud (manual speaker button).
-  // TODO(Phase 3): use currentCard.ttsLang instead of hardcoded "en".
+  // Read the currently-visible side aloud (manual speaker button), in the card's
+  // spoken language (defaulting to English).
   const handleSpeak = () => {
     if (!currentCard) return;
     const content = isFlipped ? currentCard.back : currentCard.front;
     const type = isFlipped ? currentCard.backType : currentCard.frontType;
-    speak(textForSpeech(content, type), "en", { voice: "", volume: 1 });
+    speak(textForSpeech(content, type), currentCard.ttsLang ?? "en", { voice: "", volume: 1 });
   };
 
   // Stop any audio when the shown side changes (flip or advance); if auto-read is
@@ -293,11 +293,20 @@ export function StudyMode() {
     if (!autoRead || studyComplete || !currentCard) return;
     const content = isFlipped ? currentCard.back : currentCard.front;
     const type = isFlipped ? currentCard.backType : currentCard.frontType;
-    speak(textForSpeech(content, type), "en", { voice: "", volume: 1 });
+    speak(textForSpeech(content, type), currentCard.ttsLang ?? "en", { voice: "", volume: 1 });
   }, [currentIndex, isFlipped, autoRead, studyComplete, currentCard]);
 
   // Stop audio when leaving study mode.
   useEffect(() => () => stopSpeaking(), []);
+
+  // Pre-generate (cache) the current card's back and the next card's front so a
+  // flip or Next plays instantly. Best-effort; respects the engine being present.
+  useEffect(() => {
+    if (!currentCard) return;
+    prefetchTts(textForSpeech(currentCard.back, currentCard.backType), currentCard.ttsLang ?? "en");
+    const next = cards[currentIndex + 1];
+    if (next) prefetchTts(textForSpeech(next.front, next.frontType), next.ttsLang ?? "en");
+  }, [currentIndex, currentCard, cards]);
 
   const handleFlip = useCallback(() => {
     if (!isAnimating) {

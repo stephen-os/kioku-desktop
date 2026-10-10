@@ -18,6 +18,7 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
+        .manage(commands::tts::TtsEngine::default())
         .setup(|app| {
             init_db(app.handle())?;
             Ok(())
@@ -126,6 +127,7 @@ pub fn run() {
             commands::tts::uninstall_tts,
             commands::tts::get_tts_storage_size,
             commands::tts::synthesize_tts,
+            commands::tts::tts_warmup,
             // Notebook commands
             commands::notebooks::get_all_notebooks,
             commands::notebooks::get_notebook,

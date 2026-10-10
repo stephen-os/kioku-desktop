@@ -1,13 +1,21 @@
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use sha2::{Digest, Sha256};
 use std::collections::hash_map::DefaultHasher;
 use std::fs;
 use std::hash::{Hash, Hasher};
-use std::io::Write;
+use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
-use std::process::Command;
+use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
+use std::sync::Mutex;
 use tauri::{AppHandle, Emitter, Manager};
+
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
+/// Windows: don't pop a console window when spawning the engine.
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
 /// Download URL for the prebuilt standalone `kioku-tts` engine (MeloTTS, frozen
 /// with PyInstaller). The user hosts the per-platform ZIP on a `kioku-desktop`
@@ -136,6 +144,10 @@ pub async fn install_tts(app: AppHandle) -> Result<(), String> {
     {
         return Err("TTS engine not yet available".to_string());
     }
+
+    // Stop any running daemon so the engine files aren't locked during extract
+    // (a running .exe can't be overwritten on Windows).
+    kill_daemon(&app);
 
     // SECURITY: only fetch the engine over TLS. Reject anything that is not an
     // https URL so the download cannot be downgraded to cleartext.
@@ -272,6 +284,10 @@ pub async fn install_tts(app: AppHandle) -> Result<(), String> {
 /// Remove the engine and the synthesized-audio cache.
 #[tauri::command]
 pub async fn uninstall_tts(app: AppHandle) -> Result<(), String> {
+    // Stop the daemon first so the engine files aren't locked and no stale
+    // process keeps running against a removed engine.
+    kill_daemon(&app);
+
     let engine_dir = get_engine_dir(&app)?;
     let cache_dir = get_cache_dir(&app)?;
 
@@ -293,10 +309,147 @@ pub async fn get_tts_storage_size(app: AppHandle) -> Result<u64, String> {
     tts_storage_bytes(&app)
 }
 
+/// The persistent MeloTTS daemon (`kioku-tts --serve`): torch is imported once
+/// and each language's model stays resident, so every request after warm-up is
+/// fast. Spawned lazily (warm-up or first synth); when the app exits its stdin
+/// closes and the daemon reaches EOF and exits on its own.
+struct Daemon {
+    child: Child,
+    stdin: ChildStdin,
+    stdout: BufReader<ChildStdout>,
+}
+
+/// Tauri managed state: the (optional) running daemon, behind a mutex so requests
+/// serialize (the engine processes one utterance at a time anyway).
+pub struct TtsEngine(Mutex<Option<Daemon>>);
+
+impl Default for TtsEngine {
+    fn default() -> Self {
+        TtsEngine(Mutex::new(None))
+    }
+}
+
+/// Spawn the engine in `--serve` mode and block until it signals readiness
+/// (i.e. torch has finished importing).
+fn spawn_daemon(app: &AppHandle) -> Result<Daemon, String> {
+    let exe = get_engine_exe(app)?;
+    if !exe.exists() {
+        return Err("TTS engine not installed".to_string());
+    }
+
+    let mut cmd = Command::new(&exe);
+    cmd.arg("--serve")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null());
+    #[cfg(windows)]
+    cmd.creation_flags(CREATE_NO_WINDOW);
+
+    let mut child = cmd
+        .spawn()
+        .map_err(|e| format!("Failed to start TTS daemon: {}", e))?;
+
+    let stdin = child
+        .stdin
+        .take()
+        .ok_or_else(|| "TTS daemon has no stdin".to_string())?;
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| "TTS daemon has no stdout".to_string())?;
+    let mut reader = BufReader::new(stdout);
+
+    // Readiness handshake — blocks while the daemon imports torch.
+    let mut ready = String::new();
+    reader
+        .read_line(&mut ready)
+        .map_err(|e| format!("TTS daemon handshake failed: {}", e))?;
+
+    Ok(Daemon {
+        child,
+        stdin,
+        stdout: reader,
+    })
+}
+
+/// Send one JSON request line and read one JSON response line.
+fn daemon_exchange(
+    daemon: &mut Daemon,
+    req: &serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    let mut line = serde_json::to_string(req).map_err(|e| e.to_string())?;
+    line.push('\n');
+    daemon
+        .stdin
+        .write_all(line.as_bytes())
+        .map_err(|e| format!("TTS daemon write failed: {}", e))?;
+    daemon
+        .stdin
+        .flush()
+        .map_err(|e| format!("TTS daemon flush failed: {}", e))?;
+
+    let mut resp = String::new();
+    let n = daemon
+        .stdout
+        .read_line(&mut resp)
+        .map_err(|e| format!("TTS daemon read failed: {}", e))?;
+    if n == 0 {
+        return Err("TTS daemon closed unexpectedly".to_string());
+    }
+    serde_json::from_str(&resp).map_err(|e| format!("TTS daemon bad response: {}", e))
+}
+
+/// True if the daemon response carried `{"ok": true}`; else an Err with its message.
+fn daemon_ok(resp: serde_json::Value) -> Result<(), String> {
+    if resp.get("ok").and_then(|v| v.as_bool()).unwrap_or(false) {
+        Ok(())
+    } else {
+        Err(resp
+            .get("error")
+            .and_then(|v| v.as_str())
+            .unwrap_or("unknown TTS daemon error")
+            .to_string())
+    }
+}
+
+/// Stop the daemon if one is running (used before uninstall/reinstall).
+fn kill_daemon(app: &AppHandle) {
+    if let Some(engine) = app.try_state::<TtsEngine>() {
+        if let Ok(mut guard) = engine.0.lock() {
+            if let Some(mut d) = guard.take() {
+                let _ = d.child.kill();
+            }
+        }
+    }
+}
+
+/// Start the daemon (if the engine is installed) and preload a language's model
+/// so later synthesis is fast. Called from the front end at app launch. An error
+/// here is harmless — the engine may simply not be installed yet, and the UI
+/// keeps using the Web Speech fallback until it is.
+#[tauri::command]
+pub async fn tts_warmup(app: AppHandle, lang: Option<String>) -> Result<(), String> {
+    let engine = app.state::<TtsEngine>();
+    let mut guard = engine
+        .0
+        .lock()
+        .map_err(|_| "TTS engine state poisoned".to_string())?;
+
+    if guard.is_none() {
+        *guard = Some(spawn_daemon(&app)?);
+    }
+    let daemon = guard.as_mut().unwrap();
+
+    let lang = lang.unwrap_or_else(|| "en".to_string());
+    let resp = daemon_exchange(daemon, &json!({ "cmd": "warm", "lang": lang }))?;
+    daemon_ok(resp)
+}
+
 /// Synthesize `text` in `lang` to a cached WAV and return its absolute path.
 /// Returns cached audio immediately when present; otherwise requires the engine
-/// to be installed (errors if not, so the front end can fall back to Web Speech),
-/// invokes the engine as a subprocess, and returns the resulting file path.
+/// to be installed (errors if not, so the front end can fall back to Web Speech).
+/// Prefers the persistent daemon and falls back to a one-shot process if the
+/// daemon is unavailable or fails.
 #[tauri::command]
 pub async fn synthesize_tts(app: AppHandle, text: String, lang: String) -> Result<String, String> {
     let cache_dir = get_cache_dir(&app)?;
@@ -304,10 +457,11 @@ pub async fn synthesize_tts(app: AppHandle, text: String, lang: String) -> Resul
         .map_err(|e| format!("Failed to create cache dir: {}", e))?;
 
     let out_path = cache_dir.join(cache_filename(&lang, &text));
+    let out_str = out_path.to_string_lossy().to_string();
 
     // Cache hit.
     if out_path.exists() {
-        return Ok(out_path.to_string_lossy().to_string());
+        return Ok(out_str);
     }
 
     // Need the engine to generate a cache miss.
@@ -316,13 +470,47 @@ pub async fn synthesize_tts(app: AppHandle, text: String, lang: String) -> Resul
         return Err("TTS engine not installed".to_string());
     }
 
-    let status = Command::new(&engine_exe)
-        .arg("--lang")
+    // Preferred path: the persistent daemon (fast once warmed).
+    {
+        let engine = app.state::<TtsEngine>();
+        let mut guard = engine
+            .0
+            .lock()
+            .map_err(|_| "TTS engine state poisoned".to_string())?;
+        if guard.is_none() {
+            // Spawn lazily; if it fails, fall through to a one-shot run.
+            if let Ok(d) = spawn_daemon(&app) {
+                *guard = Some(d);
+            }
+        }
+        if let Some(daemon) = guard.as_mut() {
+            let req = json!({ "cmd": "synth", "lang": lang, "text": text, "out": out_str });
+            match daemon_exchange(daemon, &req).and_then(daemon_ok) {
+                Ok(()) if out_path.exists() => return Ok(out_str),
+                Ok(()) => { /* reported ok but no file — fall through to one-shot */ }
+                Err(_) => {
+                    // Daemon errored or died: drop it so the next call respawns,
+                    // then fall back to a one-shot run below.
+                    if let Some(mut d) = guard.take() {
+                        let _ = d.child.kill();
+                    }
+                }
+            }
+        }
+    }
+
+    // Fallback: one-shot process.
+    let mut cmd = Command::new(&engine_exe);
+    cmd.arg("--lang")
         .arg(&lang)
         .arg("--text")
         .arg(&text)
         .arg("--out")
-        .arg(&out_path)
+        .arg(&out_path);
+    #[cfg(windows)]
+    cmd.creation_flags(CREATE_NO_WINDOW);
+
+    let status = cmd
         .status()
         .map_err(|e| format!("Failed to run TTS engine: {}", e))?;
 
@@ -334,5 +522,5 @@ pub async fn synthesize_tts(app: AppHandle, text: String, lang: String) -> Resul
         return Err("TTS engine did not produce an audio file".to_string());
     }
 
-    Ok(out_path.to_string_lossy().to_string())
+    Ok(out_str)
 }

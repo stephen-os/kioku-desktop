@@ -73,6 +73,29 @@ export async function synthesizeTts(text: string, lang: string): Promise<string>
 }
 
 /**
+ * Warm up the engine: start the persistent daemon and preload a language model
+ * so later synthesis is near-instant. Best-effort; harmless if not installed.
+ */
+export async function ttsWarmup(lang: string = "en"): Promise<void> {
+  await invoke("tts_warmup", { lang });
+}
+
+/**
+ * Pre-generate (and cache) audio without playing it, so a subsequent speak() of
+ * the same text is instant. Best-effort — silently ignores errors and no-ops
+ * when the engine isn't installed.
+ */
+export async function prefetchTts(text: string, lang: string = "en"): Promise<void> {
+  if (!text.trim()) return;
+  if (!(await isEngineAvailable())) return;
+  try {
+    await synthesizeTts(text, lang);
+  } catch {
+    /* best-effort */
+  }
+}
+
+/**
  * Format bytes to a human-readable string.
  */
 export function formatBytes(bytes: number): string {

@@ -53,10 +53,23 @@ export interface Card {
   backType: ContentType;
   backLanguage: CodeLanguage | null;
   notes: string | null;
+  ttsLang: TtsLang | null;
   tags: Tag[];
   createdAt: string;
   updatedAt: string;
 }
+
+// Spoken languages supported by the MeloTTS engine for read-aloud (text cards).
+export type TtsLang = "en" | "es" | "fr" | "zh" | "ja" | "ko";
+
+export const TTS_LANGUAGES: { code: TtsLang; label: string }[] = [
+  { code: "en", label: "English" },
+  { code: "es", label: "Spanish" },
+  { code: "fr", label: "French" },
+  { code: "zh", label: "Chinese" },
+  { code: "ja", label: "Japanese" },
+  { code: "ko", label: "Korean" },
+];
 
 export interface Tag {
   id: string;
@@ -245,6 +258,7 @@ export interface CreateCardRequest {
   backType?: ContentType;
   backLanguage?: CodeLanguage;
   notes?: string;
+  ttsLang?: TtsLang | null;
 }
 
 export interface UpdateCardRequest {
@@ -255,6 +269,7 @@ export interface UpdateCardRequest {
   backType?: ContentType;
   backLanguage?: CodeLanguage;
   notes?: string;
+  ttsLang?: TtsLang | null;
 }
 
 // ============================================

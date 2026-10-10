@@ -32,5 +32,10 @@ pub fn init_database(app: &AppHandle) -> Result<Connection, String> {
     conn.execute_batch(schema)
         .map_err(|e| format!("Failed to initialize database schema: {}", e))?;
 
+    // Additive migration for databases created before a column existed (there is
+    // no versioned-migration system). ADD COLUMN errors with "duplicate column
+    // name" once applied, which we deliberately ignore so this stays idempotent.
+    let _ = conn.execute("ALTER TABLE cards ADD COLUMN tts_lang TEXT", []);
+
     Ok(conn)
 }

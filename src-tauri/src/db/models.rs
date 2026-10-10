@@ -31,6 +31,8 @@ pub struct Card {
     pub back_type: String,
     pub back_language: Option<String>,
     pub notes: Option<String>,
+    /// Spoken language for read-aloud (TTS): en/es/fr/zh/ja/ko. None => English.
+    pub tts_lang: Option<String>,
     pub created_at: String,
     pub updated_at: String,
     #[serde(default)]
@@ -413,6 +415,7 @@ pub struct CreateCardRequest {
     pub back_type: Option<String>,
     pub back_language: Option<String>,
     pub notes: Option<String>,
+    pub tts_lang: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -425,6 +428,7 @@ pub struct UpdateCardRequest {
     pub back_type: Option<String>,
     pub back_language: Option<String>,
     pub notes: Option<String>,
+    pub tts_lang: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
