@@ -8,6 +8,10 @@ import { isTauri } from "@/lib/auth";
 import { CodeBlock } from "@/components/CodeEditor";
 import { BackButton } from "@/components";
 import { useToast } from "@/context/ToastContext";
+import { speak, stopSpeaking, textForSpeech } from "@/lib/tts";
+
+// Persisted toggle: auto-read each card side aloud as you study.
+const AUTO_READ_KEY = "kioku-study-autoread";
 
 type FilterLogic = "any" | "all";
 
@@ -26,6 +30,27 @@ export function StudyMode() {
   const [isFlipped, setIsFlipped] = useState(false);
   const [loading, setLoading] = useState(true);
   const [studyComplete, setStudyComplete] = useState(false);
+
+  // TTS: per-session auto-read toggle (persisted). A manual speaker button plays
+  // the current side on demand regardless of this setting.
+  const [autoRead, setAutoRead] = useState(() => {
+    try {
+      return localStorage.getItem(AUTO_READ_KEY) === "1";
+    } catch {
+      return false;
+    }
+  });
+  const toggleAutoRead = useCallback(() => {
+    setAutoRead((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem(AUTO_READ_KEY, next ? "1" : "0");
+      } catch {
+        /* ignore */
+      }
+      return next;
+    });
+  }, []);
 
   // URL filter params - use raw strings for stable dependencies
   const urlFrontSearch = searchParams.get("front") || "";
@@ -250,6 +275,29 @@ export function StudyMode() {
 
   const currentCard = cards[currentIndex];
   const progress = cards.length > 0 ? ((currentIndex + 1) / cards.length) * 100 : 0;
+
+  // Read the currently-visible side aloud (manual speaker button).
+  // TODO(Phase 3): use currentCard.ttsLang instead of hardcoded "en".
+  const handleSpeak = () => {
+    if (!currentCard) return;
+    const content = isFlipped ? currentCard.back : currentCard.front;
+    const type = isFlipped ? currentCard.backType : currentCard.frontType;
+    speak(textForSpeech(content, type), "en", { voice: "", volume: 1 });
+  };
+
+  // Stop any audio when the shown side changes (flip or advance); if auto-read is
+  // on, read the newly-shown side. This is also what prevents the previous clip
+  // from bleeding into the next card.
+  useEffect(() => {
+    stopSpeaking();
+    if (!autoRead || studyComplete || !currentCard) return;
+    const content = isFlipped ? currentCard.back : currentCard.front;
+    const type = isFlipped ? currentCard.backType : currentCard.frontType;
+    speak(textForSpeech(content, type), "en", { voice: "", volume: 1 });
+  }, [currentIndex, isFlipped, autoRead, studyComplete, currentCard]);
+
+  // Stop audio when leaving study mode.
+  useEffect(() => () => stopSpeaking(), []);
 
   const handleFlip = useCallback(() => {
     if (!isAnimating) {
@@ -611,7 +659,18 @@ export function StudyMode() {
                 {studyComplete ? "Complete!" : `Card ${currentIndex + 1} of ${cards.length}`}
               </p>
             </div>
-            <div className="w-24" /> {/* Spacer for centering */}
+            <div className="w-24 flex justify-end">
+              <button
+                onClick={handleSpeak}
+                title="Read this side aloud"
+                aria-label="Read this side aloud"
+                className="p-2 text-[#78dce8] hover:text-[#ffd866] hover:bg-[#5b595c]/30 rounded-lg transition-colors"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.536 8.464a5 5 0 010 7.072M17.95 6.05a8 8 0 010 11.9M11 5L6 9H2v6h4l5 4V5z" />
+                </svg>
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -833,6 +892,24 @@ export function StudyMode() {
                 <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                 </svg>
+              </button>
+            </div>
+
+            {/* Auto-read toggle */}
+            <div className="mt-6 flex items-center justify-center flex-shrink-0">
+              <button
+                onClick={toggleAutoRead}
+                title="Automatically read each side aloud as you study"
+                className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                  autoRead
+                    ? "bg-[#a9dc76]/20 text-[#a9dc76]"
+                    : "bg-[#5b595c]/30 text-[#939293] hover:text-[#fcfcfa]"
+                }`}
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.536 8.464a5 5 0 010 7.072M17.95 6.05a8 8 0 010 11.9M11 5L6 9H2v6h4l5 4V5z" />
+                </svg>
+                Auto-read {autoRead ? "on" : "off"}
               </button>
             </div>
 

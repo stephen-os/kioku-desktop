@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { convertFileSrc } from "@tauri-apps/api/core";
-import type { TTSVoice } from "@/types";
+import type { TTSVoice, ContentType } from "@/types";
 
 // Check if Web Speech API is available
 const isSpeechSynthesisAvailable = typeof window !== "undefined" && "speechSynthesis" in window;
@@ -10,6 +10,14 @@ export interface SynthesizeOptions {
   rate?: number;  // 0.1 to 10, default 1
   pitch?: number; // 0 to 2, default 1
   volume?: number; // 0 to 1, default 1
+}
+
+// Text to actually read aloud for a card side. Code is never read verbatim.
+export function textForSpeech(content: string, contentType: ContentType): string {
+  if (contentType === "CODE") {
+    return "Code snippet. See screen for details.";
+  }
+  return content;
 }
 
 // ============================================
@@ -82,6 +90,16 @@ export function formatBytes(bytes: number): string {
 // The currently playing MeloTTS audio element, so stopSpeaking() can cancel it.
 let currentAudio: HTMLAudioElement | null = null;
 
+// Cancels the in-flight playAudioFile() promise (pauses + resolves it) so an
+// awaiting speak() unwinds cleanly when playback is superseded or stopped.
+let stopCurrentPlayback: (() => void) | null = null;
+
+// Bumped on every stopSpeaking() and at the start of every speak(). A speak()
+// call captures this at entry; if it no longer matches after the (async) synth
+// step, the call has been superseded (card advanced, flipped, stopped) and must
+// NOT play. This is what prevents the previous clip from playing over the next.
+let speakGeneration = 0;
+
 // Remembers whether the engine is installed so we don't invoke a failing command
 // on every card. Reset lazily if a MeloTTS call fails.
 let engineAvailable: boolean | null = null;
@@ -107,40 +125,53 @@ export function resetEngineAvailability(): void {
 
 /**
  * Play a MeloTTS-generated WAV via an HTMLAudioElement.
- * Resolves when playback ends; rejects on load/playback failure.
+ * Resolves when playback ends OR when superseded/stopped; rejects on load/playback failure.
  */
-function playAudioFile(path: string, volume: number): Promise<void> {
+function playAudioFile(path: string, volume: number, gen: number): Promise<void> {
   return new Promise((resolve, reject) => {
-    const src = convertFileSrc(path);
-    const audio = new Audio(src);
+    // Already superseded before we could start — don't play.
+    if (gen !== speakGeneration) {
+      resolve();
+      return;
+    }
+
+    const audio = new Audio(convertFileSrc(path));
     audio.volume = Math.max(0, Math.min(1, volume));
     currentAudio = audio;
 
-    const cleanup = () => {
-      if (currentAudio === audio) {
-        currentAudio = null;
+    const settle = (done: () => void) => {
+      if (currentAudio === audio) currentAudio = null;
+      if (stopCurrentPlayback === stop) stopCurrentPlayback = null;
+      audio.onended = null;
+      audio.onerror = null;
+      done();
+    };
+    // Called by stopSpeaking(): halt playback and resolve the awaiting speak().
+    const stop = () => {
+      try {
+        audio.pause();
+        audio.src = "";
+      } catch {
+        /* ignore */
       }
+      settle(resolve);
     };
+    stopCurrentPlayback = stop;
 
-    audio.onended = () => {
-      cleanup();
-      resolve();
-    };
-    audio.onerror = () => {
-      cleanup();
-      reject(new Error("Failed to play synthesized audio"));
-    };
-
-    audio.play().catch((err) => {
-      cleanup();
-      reject(err instanceof Error ? err : new Error("Failed to start audio playback"));
-    });
+    audio.onended = () => settle(resolve);
+    audio.onerror = () => settle(() => reject(new Error("Failed to play synthesized audio")));
+    audio.play().catch((err) =>
+      settle(() => reject(err instanceof Error ? err : new Error("Failed to start audio playback")))
+    );
   });
 }
 
 /**
  * Speak text, preferring the MeloTTS engine when installed and falling back to
  * the Web Speech API on any failure or when the engine is absent.
+ *
+ * Starting a new utterance supersedes any in-flight or playing one, so flipping
+ * a card or advancing the deck immediately cuts over (no overlapping audio).
  *
  * `lang` is a MeloTTS language code (en, es, fr, zh, ja, ko) used by the engine.
  * `options` carries the Web Speech voice/rate/pitch/volume used by the fallback
@@ -153,20 +184,28 @@ export async function speak(
 ): Promise<void> {
   if (!text.trim()) return;
 
+  // Supersede any prior utterance and cut off whatever is currently playing.
+  const gen = ++speakGeneration;
+  if (stopCurrentPlayback) stopCurrentPlayback();
+  if (isSpeechSynthesisAvailable) speechSynthesis.cancel();
+
   const volume = options.volume ?? 1;
 
   if (await isEngineAvailable()) {
     try {
       const path = await synthesizeTts(text, lang);
-      await playAudioFile(path, volume);
+      if (gen !== speakGeneration) return; // superseded during synth — don't play
+      await playAudioFile(path, volume, gen);
       return;
     } catch (err) {
+      if (gen !== speakGeneration) return; // stopped — don't fall back
       // Engine missing or synthesis failed — fall through to Web Speech.
       console.warn("MeloTTS synthesis failed, falling back to Web Speech:", err);
       engineAvailable = null; // re-check next time
     }
   }
 
+  if (gen !== speakGeneration) return;
   await speakWithWebSpeech(text, options);
 }
 
@@ -346,12 +385,9 @@ function speakWithWebSpeech(text: string, options: SynthesizeOptions): Promise<v
  * Stop any ongoing speech (both MeloTTS audio and Web Speech).
  */
 export function stopSpeaking(): void {
-  if (currentAudio) {
-    currentAudio.pause();
-    currentAudio.onended = null;
-    currentAudio.onerror = null;
-    currentAudio = null;
-  }
+  // Invalidate any in-flight speak() so a pending synth won't play when it lands.
+  speakGeneration++;
+  if (stopCurrentPlayback) stopCurrentPlayback();
   if (isSpeechSynthesisAvailable) {
     speechSynthesis.cancel();
   }
