@@ -7,8 +7,9 @@ use rusqlite::{params, Connection};
 use uuid::Uuid;
 
 use super::models::{
-    Card, Choice, Deck, Page, Question, QuestionAnswer, QuestionResult, QuestionType, Quiz,
-    QuizAttempt,
+    Card, Choice, CreateCardRequest, CreateChoiceRequest, CreateQuestionRequest, Deck, Page,
+    Question, QuestionAnswer, QuestionResult, QuestionType, Quiz, QuizAttempt, UpdateCardRequest,
+    UpdateDeckRequest, UpdatePageRequest, UpdateQuestionRequest, UpdateQuizRequest,
 };
 
 // ============================================
@@ -70,6 +71,35 @@ pub fn get_course_cards(conn: &Connection, course_deck_id: &str) -> Result<Vec<C
         .map_err(|e| format!("Failed to collect course cards: {}", e))?;
 
     Ok(cards)
+}
+
+pub fn get_course_card(conn: &Connection, id: &str) -> Result<Card, String> {
+    conn.query_row(
+        "SELECT id, course_deck_id, front, front_type, front_language,
+                back, back_type, back_language, notes,
+                created_at, updated_at, front_tts_lang, back_tts_lang
+         FROM course_cards WHERE id = ?1",
+        params![id],
+        |row| {
+            Ok(Card {
+                id: row.get(0)?,
+                deck_id: row.get(1)?,
+                front: row.get(2)?,
+                front_type: row.get(3)?,
+                front_language: row.get(4)?,
+                back: row.get(5)?,
+                back_type: row.get(6)?,
+                back_language: row.get(7)?,
+                notes: row.get(8)?,
+                created_at: row.get(9)?,
+                updated_at: row.get(10)?,
+                front_tts_lang: row.get(11)?,
+                back_tts_lang: row.get(12)?,
+                tags: vec![],
+            })
+        },
+    )
+    .map_err(|e| format!("Course card not found: {}", e))
 }
 
 // ============================================
@@ -140,6 +170,38 @@ fn get_course_questions(conn: &Connection, course_quiz_id: &str) -> Result<Vec<Q
         out.push(Question { choices, ..q });
     }
     Ok(out)
+}
+
+pub fn get_course_question(conn: &Connection, id: &str) -> Result<Question, String> {
+    let question = conn
+        .query_row(
+            "SELECT id, course_quiz_id, question_type, content, content_type, content_language,
+                    correct_answer, multiple_answers, explanation, position, created_at, updated_at
+             FROM course_questions WHERE id = ?1",
+            params![id],
+            |row| {
+                Ok(Question {
+                    id: row.get(0)?,
+                    quiz_id: row.get(1)?,
+                    question_type: QuestionType::from_str(&row.get::<_, String>(2)?),
+                    content: row.get(3)?,
+                    content_type: row.get(4)?,
+                    content_language: row.get(5)?,
+                    correct_answer: row.get(6)?,
+                    multiple_answers: row.get::<_, i32>(7)? != 0,
+                    explanation: row.get(8)?,
+                    position: row.get(9)?,
+                    created_at: row.get(10)?,
+                    updated_at: row.get(11)?,
+                    choices: vec![],
+                    tags: vec![],
+                })
+            },
+        )
+        .map_err(|e| format!("Course question not found: {}", e))?;
+
+    let choices = get_course_choices(conn, id)?;
+    Ok(Question { choices, ..question })
 }
 
 fn get_course_choices(conn: &Connection, course_question_id: &str) -> Result<Vec<Choice>, String> {
@@ -558,6 +620,221 @@ pub fn delete_course_notebook(conn: &Connection, id: &str) -> Result<(), String>
     conn.execute("DELETE FROM course_notebooks WHERE id = ?1", params![id])
         .map_err(|e| format!("Failed to delete course notebook: {}", e))?;
     Ok(())
+}
+
+pub fn delete_course_card(conn: &Connection, id: &str) -> Result<(), String> {
+    conn.execute("DELETE FROM course_cards WHERE id = ?1", params![id])
+        .map_err(|e| format!("Failed to delete course card: {}", e))?;
+    Ok(())
+}
+
+pub fn delete_course_question(conn: &Connection, id: &str) -> Result<(), String> {
+    conn.execute("DELETE FROM course_questions WHERE id = ?1", params![id])
+        .map_err(|e| format!("Failed to delete course question: {}", e))?;
+    Ok(())
+}
+
+// ============================================
+// Update course-owned content in place (Edit-course mode). These take the same
+// request DTOs as the library editors so DeckEdit/QuizEditor/CourseNoteView can
+// reuse their forms against course content.
+// ============================================
+
+pub fn update_course_deck(
+    conn: &Connection,
+    id: &str,
+    request: &UpdateDeckRequest,
+) -> Result<Deck, String> {
+    let now = chrono::Utc::now().to_rfc3339();
+    conn.execute(
+        "UPDATE course_decks SET name = ?1, description = ?2, shuffle_cards = ?3, updated_at = ?4
+         WHERE id = ?5",
+        params![
+            request.name,
+            request.description,
+            request.shuffle_cards.unwrap_or(false) as i32,
+            now,
+            id
+        ],
+    )
+    .map_err(|e| format!("Failed to update course deck: {}", e))?;
+    get_course_deck(conn, id)
+}
+
+pub fn create_course_card_from_request(
+    conn: &Connection,
+    course_deck_id: &str,
+    request: &CreateCardRequest,
+) -> Result<Card, String> {
+    let id = create_course_card(
+        conn,
+        course_deck_id,
+        &request.front,
+        request.front_type.as_deref().unwrap_or("TEXT"),
+        request.front_language.as_deref(),
+        &request.back,
+        request.back_type.as_deref().unwrap_or("TEXT"),
+        request.back_language.as_deref(),
+        request.notes.as_deref(),
+        request.front_tts_lang.as_deref(),
+        request.back_tts_lang.as_deref(),
+    )?;
+    get_course_card(conn, &id)
+}
+
+pub fn update_course_card(
+    conn: &Connection,
+    id: &str,
+    request: &UpdateCardRequest,
+) -> Result<Card, String> {
+    let now = chrono::Utc::now().to_rfc3339();
+    conn.execute(
+        "UPDATE course_cards SET front = ?1, front_type = ?2, front_language = ?3,
+         back = ?4, back_type = ?5, back_language = ?6, notes = ?7,
+         front_tts_lang = ?8, back_tts_lang = ?9, updated_at = ?10 WHERE id = ?11",
+        params![
+            request.front,
+            request.front_type.as_deref().unwrap_or("TEXT"),
+            request.front_language,
+            request.back,
+            request.back_type.as_deref().unwrap_or("TEXT"),
+            request.back_language,
+            request.notes,
+            request.front_tts_lang,
+            request.back_tts_lang,
+            now,
+            id
+        ],
+    )
+    .map_err(|e| format!("Failed to update course card: {}", e))?;
+    get_course_card(conn, id)
+}
+
+pub fn update_course_quiz(
+    conn: &Connection,
+    id: &str,
+    request: &UpdateQuizRequest,
+) -> Result<Quiz, String> {
+    let now = chrono::Utc::now().to_rfc3339();
+    conn.execute(
+        "UPDATE course_quizzes SET name = ?1, description = ?2, shuffle_questions = ?3, updated_at = ?4
+         WHERE id = ?5",
+        params![
+            request.name,
+            request.description,
+            request.shuffle_questions.unwrap_or(false) as i32,
+            now,
+            id
+        ],
+    )
+    .map_err(|e| format!("Failed to update course quiz: {}", e))?;
+    get_course_quiz(conn, id)
+}
+
+pub fn create_course_question_from_request(
+    conn: &Connection,
+    course_quiz_id: &str,
+    request: &CreateQuestionRequest,
+) -> Result<Question, String> {
+    let position: i32 = conn
+        .query_row(
+            "SELECT COALESCE(MAX(position), -1) + 1 FROM course_questions WHERE course_quiz_id = ?1",
+            params![course_quiz_id],
+            |row| row.get(0),
+        )
+        .unwrap_or(0);
+
+    let id = create_course_question(
+        conn,
+        course_quiz_id,
+        &request.question_type,
+        &request.content,
+        request.content_type.as_deref().unwrap_or("TEXT"),
+        request.content_language.as_deref(),
+        request.correct_answer.as_deref(),
+        request.multiple_answers.unwrap_or(false),
+        request.explanation.as_deref(),
+        position,
+    )?;
+
+    if let Some(choices) = &request.choices {
+        for (idx, choice) in choices.iter().enumerate() {
+            create_course_choice(conn, &id, &choice.text, choice.is_correct, idx as i32)?;
+        }
+    }
+    get_course_question(conn, &id)
+}
+
+pub fn update_course_question(
+    conn: &Connection,
+    id: &str,
+    request: &UpdateQuestionRequest,
+) -> Result<Question, String> {
+    let now = chrono::Utc::now().to_rfc3339();
+    conn.execute(
+        "UPDATE course_questions SET question_type = ?1, content = ?2, content_type = ?3,
+         content_language = ?4, correct_answer = ?5, multiple_answers = ?6,
+         explanation = ?7, updated_at = ?8 WHERE id = ?9",
+        params![
+            request.question_type,
+            request.content,
+            request.content_type.as_deref().unwrap_or("TEXT"),
+            request.content_language,
+            request.correct_answer,
+            request.multiple_answers.unwrap_or(false) as i32,
+            request.explanation,
+            now,
+            id
+        ],
+    )
+    .map_err(|e| format!("Failed to update course question: {}", e))?;
+    get_course_question(conn, id)
+}
+
+pub fn update_course_choices_for_question(
+    conn: &Connection,
+    course_question_id: &str,
+    choices: &[CreateChoiceRequest],
+) -> Result<(), String> {
+    conn.execute(
+        "DELETE FROM course_choices WHERE course_question_id = ?1",
+        params![course_question_id],
+    )
+    .map_err(|e| format!("Failed to delete old course choices: {}", e))?;
+
+    for (idx, choice) in choices.iter().enumerate() {
+        create_course_choice(conn, course_question_id, &choice.text, choice.is_correct, idx as i32)?;
+    }
+    Ok(())
+}
+
+pub fn reorder_course_questions(
+    conn: &Connection,
+    course_quiz_id: &str,
+    question_ids: &[String],
+) -> Result<(), String> {
+    for (idx, qid) in question_ids.iter().enumerate() {
+        conn.execute(
+            "UPDATE course_questions SET position = ?1 WHERE id = ?2 AND course_quiz_id = ?3",
+            params![idx as i32, qid, course_quiz_id],
+        )
+        .map_err(|e| format!("Failed to reorder course question: {}", e))?;
+    }
+    Ok(())
+}
+
+pub fn update_course_page(
+    conn: &Connection,
+    id: &str,
+    request: &UpdatePageRequest,
+) -> Result<Page, String> {
+    let now = chrono::Utc::now().to_rfc3339();
+    conn.execute(
+        "UPDATE course_pages SET title = ?1, content = ?2, updated_at = ?3 WHERE id = ?4",
+        params![request.title, request.content, now, id],
+    )
+    .map_err(|e| format!("Failed to update course page: {}", e))?;
+    get_course_page(conn, id)
 }
 
 // ============================================

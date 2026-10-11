@@ -92,6 +92,18 @@ pub fn run() {
             commands::courses::adopt_course_page,
             commands::courses::grade_course_quiz,
             commands::courses::link_course_items,
+            // Course-owned content editing (Edit-course mode)
+            commands::courses::course_update_deck,
+            commands::courses::course_create_card,
+            commands::courses::course_update_card,
+            commands::courses::course_delete_card,
+            commands::courses::course_update_quiz,
+            commands::courses::course_create_question,
+            commands::courses::course_update_question,
+            commands::courses::course_delete_question,
+            commands::courses::course_update_question_choices,
+            commands::courses::course_reorder_questions,
+            commands::courses::course_update_page,
             // Quiz tag commands
             commands::quizzes::get_tags_for_quiz,
             commands::quizzes::get_tags_for_question,

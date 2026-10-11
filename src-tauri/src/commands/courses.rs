@@ -2,11 +2,14 @@ use rusqlite::params;
 use tauri::State;
 
 use crate::db::{
-    self, AddLessonItemRequest, Card, Course, CourseItemOverview, CreateCourseRequest,
-    CreateLessonRequest, DbState, Deck, Lesson, LessonItem, LessonProgress, Page, QuestionAnswer,
-    Quiz, QuizAttempt, ReorderLessonItemsRequest, ReorderLessonsRequest, UpdateCourseRequest,
-    UpdateLessonRequest,
+    self, AddLessonItemRequest, Card, Course, CourseItemOverview, CreateCardRequest,
+    CreateCourseRequest, CreateLessonRequest, CreateQuestionRequest, DbState, Deck, Lesson,
+    LessonItem, LessonProgress, Page, Question, QuestionAnswer, Quiz, QuizAttempt,
+    ReorderLessonItemsRequest, ReorderLessonsRequest, UpdateCardRequest, UpdateCourseRequest,
+    UpdateDeckRequest, UpdateLessonRequest, UpdatePageRequest, UpdateQuestionRequest,
+    UpdateQuizRequest,
 };
+use crate::db::CreateChoiceRequest;
 
 // ============================================
 // Course Commands
@@ -426,6 +429,112 @@ pub fn get_course_quiz(state: State<DbState>, course_quiz_id: String) -> Result<
 pub fn get_course_page(state: State<DbState>, course_page_id: String) -> Result<Page, String> {
     let conn = state.0.lock().map_err(|e| format!("Lock error: {}", e))?;
     db::get_course_page(&conn, &course_page_id)
+}
+
+// ============================================
+// Course-Owned Content (edit in place — Edit-course mode)
+// ============================================
+
+#[tauri::command]
+pub fn course_update_deck(
+    state: State<DbState>,
+    id: String,
+    request: UpdateDeckRequest,
+) -> Result<Deck, String> {
+    let conn = state.0.lock().map_err(|e| format!("Lock error: {}", e))?;
+    db::update_course_deck(&conn, &id, &request)
+}
+
+#[tauri::command]
+pub fn course_create_card(
+    state: State<DbState>,
+    course_deck_id: String,
+    request: CreateCardRequest,
+) -> Result<Card, String> {
+    let conn = state.0.lock().map_err(|e| format!("Lock error: {}", e))?;
+    db::create_course_card_from_request(&conn, &course_deck_id, &request)
+}
+
+#[tauri::command]
+pub fn course_update_card(
+    state: State<DbState>,
+    id: String,
+    request: UpdateCardRequest,
+) -> Result<Card, String> {
+    let conn = state.0.lock().map_err(|e| format!("Lock error: {}", e))?;
+    db::update_course_card(&conn, &id, &request)
+}
+
+#[tauri::command]
+pub fn course_delete_card(state: State<DbState>, id: String) -> Result<(), String> {
+    let conn = state.0.lock().map_err(|e| format!("Lock error: {}", e))?;
+    db::delete_course_card(&conn, &id)
+}
+
+#[tauri::command]
+pub fn course_update_quiz(
+    state: State<DbState>,
+    id: String,
+    request: UpdateQuizRequest,
+) -> Result<Quiz, String> {
+    let conn = state.0.lock().map_err(|e| format!("Lock error: {}", e))?;
+    db::update_course_quiz(&conn, &id, &request)
+}
+
+#[tauri::command]
+pub fn course_create_question(
+    state: State<DbState>,
+    course_quiz_id: String,
+    request: CreateQuestionRequest,
+) -> Result<Question, String> {
+    let conn = state.0.lock().map_err(|e| format!("Lock error: {}", e))?;
+    db::create_course_question_from_request(&conn, &course_quiz_id, &request)
+}
+
+#[tauri::command]
+pub fn course_update_question(
+    state: State<DbState>,
+    id: String,
+    request: UpdateQuestionRequest,
+) -> Result<Question, String> {
+    let conn = state.0.lock().map_err(|e| format!("Lock error: {}", e))?;
+    db::update_course_question(&conn, &id, &request)
+}
+
+#[tauri::command]
+pub fn course_delete_question(state: State<DbState>, id: String) -> Result<(), String> {
+    let conn = state.0.lock().map_err(|e| format!("Lock error: {}", e))?;
+    db::delete_course_question(&conn, &id)
+}
+
+#[tauri::command]
+pub fn course_update_question_choices(
+    state: State<DbState>,
+    course_question_id: String,
+    choices: Vec<CreateChoiceRequest>,
+) -> Result<(), String> {
+    let conn = state.0.lock().map_err(|e| format!("Lock error: {}", e))?;
+    db::update_course_choices_for_question(&conn, &course_question_id, &choices)
+}
+
+#[tauri::command]
+pub fn course_reorder_questions(
+    state: State<DbState>,
+    course_quiz_id: String,
+    question_ids: Vec<String>,
+) -> Result<(), String> {
+    let conn = state.0.lock().map_err(|e| format!("Lock error: {}", e))?;
+    db::reorder_course_questions(&conn, &course_quiz_id, &question_ids)
+}
+
+#[tauri::command]
+pub fn course_update_page(
+    state: State<DbState>,
+    id: String,
+    request: UpdatePageRequest,
+) -> Result<Page, String> {
+    let conn = state.0.lock().map_err(|e| format!("Lock error: {}", e))?;
+    db::update_course_page(&conn, &id, &request)
 }
 
 // ============================================

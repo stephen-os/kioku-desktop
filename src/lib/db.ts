@@ -4,6 +4,7 @@ import type {
   Card,
   Tag,
   CreateDeckRequest,
+  UpdateDeckRequest,
   CreateCardRequest,
   UpdateCardRequest,
   // Quiz types
@@ -433,6 +434,53 @@ export async function linkCourseItems(courseId: string): Promise<LinkItemsResult
 // state — powers the "From your courses" library sections and the due filter.
 export async function getCourseItemsOverview(): Promise<CourseItemOverview[]> {
   return invoke<CourseItemOverview[]>("get_course_items_overview");
+}
+
+// Course-owned content editing (Edit-course mode) — mirrors the library CRUD
+// against the course_* tables so DeckEdit/QuizEditor/CourseNoteView can reuse
+// their forms on a course's owned copy.
+export async function courseUpdateDeck(id: string, request: UpdateDeckRequest): Promise<Deck> {
+  return invoke<Deck>("course_update_deck", { id, request });
+}
+
+export async function courseCreateCard(courseDeckId: string, request: CreateCardRequest): Promise<Card> {
+  return invoke<Card>("course_create_card", { courseDeckId, request });
+}
+
+export async function courseUpdateCard(id: string, request: UpdateCardRequest): Promise<Card> {
+  return invoke<Card>("course_update_card", { id, request });
+}
+
+export async function courseDeleteCard(id: string): Promise<void> {
+  return invoke("course_delete_card", { id });
+}
+
+export async function courseUpdateQuiz(id: string, request: UpdateQuizRequest): Promise<Quiz> {
+  return invoke<Quiz>("course_update_quiz", { id, request });
+}
+
+export async function courseCreateQuestion(courseQuizId: string, request: CreateQuestionRequest): Promise<Question> {
+  return invoke<Question>("course_create_question", { courseQuizId, request });
+}
+
+export async function courseUpdateQuestion(id: string, request: UpdateQuestionRequest): Promise<Question> {
+  return invoke<Question>("course_update_question", { id, request });
+}
+
+export async function courseDeleteQuestion(id: string): Promise<void> {
+  return invoke("course_delete_question", { id });
+}
+
+export async function courseUpdateQuestionChoices(courseQuestionId: string, choices: CreateChoiceRequest[]): Promise<void> {
+  return invoke("course_update_question_choices", { courseQuestionId, choices });
+}
+
+export async function courseReorderQuestions(courseQuizId: string, questionIds: string[]): Promise<void> {
+  return invoke("course_reorder_questions", { courseQuizId, questionIds });
+}
+
+export async function courseUpdatePage(id: string, request: UpdatePageRequest): Promise<Page> {
+  return invoke<Page>("course_update_page", { id, request });
 }
 
 // ============================================
