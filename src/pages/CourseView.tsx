@@ -170,6 +170,10 @@ export function CourseView() {
   const nextItem = findNextItem();
   const continueTo = nextItem ? courseLaunchUrl(id!, nextItem.lesson.id, nextItem.item) : "";
 
+  // Linear gating: a lesson is locked until every earlier lesson is complete.
+  const lessons = course.lessons ?? [];
+  const lessonLocked = lessons.map((_, i) => lessons.slice(0, i).some((l) => !l.isCompleted));
+
   return (
     <div className="min-h-full bg-[#2d2a2e]">
       <main className="max-w-4xl mx-auto py-6 px-6">
@@ -325,6 +329,7 @@ export function CourseView() {
                   lesson={lesson}
                   lessonIndex={lessonIndex}
                   courseId={id!}
+                  isLocked={lessonLocked[lessonIndex]}
                   isExpanded={expandedLessons.has(lesson.id)}
                   onToggle={() => toggleLesson(lesson.id)}
                   onToggleItemComplete={(item) => handleToggleItemComplete(lesson, item)}
@@ -342,12 +347,13 @@ interface LessonSectionProps {
   lesson: Lesson;
   lessonIndex: number;
   courseId: string;
+  isLocked: boolean;
   isExpanded: boolean;
   onToggle: () => void;
   onToggleItemComplete: (item: LessonItem) => void;
 }
 
-function LessonSection({ lesson, lessonIndex, courseId, isExpanded, onToggle, onToggleItemComplete }: LessonSectionProps) {
+function LessonSection({ lesson, lessonIndex, courseId, isLocked, isExpanded, onToggle, onToggleItemComplete }: LessonSectionProps) {
   const itemCount = lesson.items.length;
   const completedItemCount = lesson.completedItemCount ?? 0;
 
@@ -379,6 +385,14 @@ function LessonSection({ lesson, lessonIndex, courseId, isExpanded, onToggle, on
           )}
         </div>
         <div className="flex items-center gap-3">
+          {isLocked && (
+            <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded bg-[#5b595c]/50 text-[#939293]">
+              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+              </svg>
+              Locked
+            </span>
+          )}
           <span className={`text-xs px-2 py-0.5 rounded ${
             lesson.isCompleted ? "bg-[#a9dc76]/20 text-[#a9dc76]" : "bg-[#ab9df2]/20 text-[#ab9df2]"
           }`}>
@@ -411,6 +425,7 @@ function LessonSection({ lesson, lessonIndex, courseId, isExpanded, onToggle, on
                   index={itemIndex}
                   courseId={courseId}
                   lessonId={lesson.id}
+                  isLocked={isLocked}
                   onToggleComplete={() => onToggleItemComplete(item)}
                 />
               ))}
@@ -427,10 +442,11 @@ interface LessonItemCardProps {
   index: number;
   courseId: string;
   lessonId: string;
+  isLocked: boolean;
   onToggleComplete: () => void;
 }
 
-function LessonItemCard({ item, index, courseId, lessonId, onToggleComplete }: LessonItemCardProps) {
+function LessonItemCard({ item, index, courseId, lessonId, isLocked, onToggleComplete }: LessonItemCardProps) {
   const isDeck = item.itemType === "deck";
   const isMissing = item.isMissing ?? false;
   // Study/Take launches in course context (records progress, returns to course).
@@ -468,7 +484,7 @@ function LessonItemCard({ item, index, courseId, lessonId, onToggleComplete }: L
       {/* Order number and checkbox */}
       <div className="flex items-center gap-3 pl-8">
         <span className="text-sm font-mono text-[#939293] w-6 text-center">{index + 1}</span>
-        {!isMissing && (
+        {!isMissing && !isLocked && (
           <button
             onClick={onToggleComplete}
             className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-colors ${
@@ -483,6 +499,13 @@ function LessonItemCard({ item, index, courseId, lessonId, onToggleComplete }: L
               </svg>
             )}
           </button>
+        )}
+        {!isMissing && isLocked && (
+          <div className="w-5 h-5 rounded-full border-2 border-[#5b595c] flex items-center justify-center text-[#5b595c]">
+            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+            </svg>
+          </div>
         )}
         {isMissing && (
           <div className="w-5 h-5 rounded-full border-2 border-[#ff6188] flex items-center justify-center">
@@ -528,7 +551,15 @@ function LessonItemCard({ item, index, courseId, lessonId, onToggleComplete }: L
 
       {/* Actions */}
       <div className="flex items-center gap-2">
-        {!isMissing && (
+        {!isMissing && isLocked && (
+          <span className="inline-flex items-center gap-1 px-2 py-1 text-xs text-[#939293]">
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+            </svg>
+            Locked
+          </span>
+        )}
+        {!isMissing && !isLocked && (
           <>
             <Link
               to={viewPath}
