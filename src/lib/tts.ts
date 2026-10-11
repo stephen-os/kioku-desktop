@@ -80,6 +80,48 @@ export async function downloadTtsModels(langs: string[]): Promise<void> {
   return invoke("download_tts_models", { langs });
 }
 
+// ============================================
+// Audio baking (pre-generate WAVs) — see docs/TTS-ARCHITECTURE.md
+// ============================================
+
+export interface PendingItem {
+  lang: string;
+  text: string;
+}
+
+export interface DeckGenStatus {
+  total: number;
+  pending: number;
+}
+
+export async function getTtsGenerationEnabled(): Promise<boolean> {
+  return invoke<boolean>("get_tts_generation_enabled");
+}
+
+export async function setTtsGenerationEnabled(enabled: boolean): Promise<void> {
+  return invoke("set_tts_generation_enabled", { enabled });
+}
+
+/** Card sides (installed languages) whose audio isn't baked yet. */
+export async function ttsPending(): Promise<PendingItem[]> {
+  return invoke<PendingItem[]>("tts_pending");
+}
+
+/** Baked-audio counts for one library deck (for the "Generating N/M" badge). */
+export async function ttsDeckStatus(deckId: string): Promise<DeckGenStatus> {
+  return invoke<DeckGenStatus>("tts_deck_status", { deckId });
+}
+
+/** Bake one language's clips, then evict the model (daemon is stopped). */
+export async function bakeTts(lang: string, texts: string[]): Promise<void> {
+  return invoke("bake_tts", { lang, texts });
+}
+
+/** Remove cached WAVs no longer referenced by any card side. Returns count removed. */
+export async function ttsGc(): Promise<number> {
+  return invoke<number>("tts_gc");
+}
+
 /**
  * Synthesize text to a cached WAV via the MeloTTS engine and return the file path.
  * Throws if the engine is not installed (so callers can fall back to Web Speech).

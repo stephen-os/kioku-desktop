@@ -154,6 +154,12 @@ pub fn run() {
             commands::tts::get_used_tts_langs,
             commands::tts::get_installed_tts_langs,
             commands::tts::download_tts_models,
+            commands::tts::get_tts_generation_enabled,
+            commands::tts::set_tts_generation_enabled,
+            commands::tts::tts_pending,
+            commands::tts::tts_deck_status,
+            commands::tts::bake_tts,
+            commands::tts::tts_gc,
             // Notebook commands
             commands::notebooks::get_all_notebooks,
             commands::notebooks::get_notebook,

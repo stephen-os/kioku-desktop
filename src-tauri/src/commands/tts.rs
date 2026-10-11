@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sha2::{Digest, Sha256};
 use std::collections::hash_map::DefaultHasher;
+use std::collections::HashSet;
 use std::fs;
 use std::hash::{Hash, Hasher};
 use std::io::{BufRead, BufReader, Write};
@@ -575,6 +576,174 @@ pub async fn download_tts_models(app: AppHandle, langs: Vec<String>) -> Result<(
         },
     );
     Ok(())
+}
+
+// ============================================
+// Audio baking (pre-generate WAVs; study just plays files)
+// ============================================
+
+/// Spoken text for a card side — code is never read verbatim (mirrors the
+/// front end's `textForSpeech`). Must stay in sync so cache keys match.
+const CODE_SPEECH: &str = "Code snippet. See screen for details.";
+
+fn synth_text(content: &str, content_type: &str) -> String {
+    if content_type.eq_ignore_ascii_case("CODE") {
+        CODE_SPEECH.to_string()
+    } else {
+        content.to_string()
+    }
+}
+
+fn cache_has(app: &AppHandle, lang: &str, text: &str) -> Result<bool, String> {
+    Ok(get_cache_dir(app)?.join(cache_filename(lang, text)).exists())
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PendingItem {
+    pub lang: String,
+    pub text: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeckGenStatus {
+    pub total: i64,
+    pub pending: i64,
+}
+
+#[tauri::command]
+pub fn get_tts_generation_enabled(state: State<DbState>) -> Result<bool, String> {
+    let conn = state.0.lock().map_err(|e| format!("Lock error: {}", e))?;
+    Ok(conn
+        .query_row(
+            "SELECT value FROM app_state WHERE key = 'tts_generation_enabled'",
+            [],
+            |r| r.get::<_, String>(0),
+        )
+        .map(|v| v == "1")
+        .unwrap_or(false))
+}
+
+#[tauri::command]
+pub fn set_tts_generation_enabled(state: State<DbState>, enabled: bool) -> Result<(), String> {
+    let conn = state.0.lock().map_err(|e| format!("Lock error: {}", e))?;
+    conn.execute(
+        "INSERT OR REPLACE INTO app_state (key, value) VALUES ('tts_generation_enabled', ?1)",
+        rusqlite::params![if enabled { "1" } else { "0" }],
+    )
+    .map_err(|e| format!("Failed to save setting: {}", e))?;
+    Ok(())
+}
+
+/// Card sides (across the active user's content) whose audio isn't baked yet,
+/// limited to installed languages. Deduped by (lang, synth-text). The front-end
+/// crawler bakes these in batches.
+#[tauri::command]
+pub fn tts_pending(app: AppHandle, state: State<DbState>) -> Result<Vec<PendingItem>, String> {
+    let (installed, sides) = {
+        let conn = state.0.lock().map_err(|e| format!("Lock error: {}", e))?;
+        let user = db::get_active_user(&conn)?.ok_or_else(|| "No active user".to_string())?;
+        (read_installed_langs(&conn), db::get_tts_sides(&conn, &user.id)?)
+    };
+
+    let mut seen: HashSet<(String, String)> = HashSet::new();
+    let mut out = Vec::new();
+    for (content, content_type, lang) in sides {
+        if !installed.iter().any(|l| l == &lang) {
+            continue;
+        }
+        let text = synth_text(&content, &content_type);
+        if text.trim().is_empty() {
+            continue;
+        }
+        if !seen.insert((lang.clone(), text.clone())) {
+            continue;
+        }
+        if cache_has(&app, &lang, &text)? {
+            continue;
+        }
+        out.push(PendingItem { lang, text });
+    }
+    Ok(out)
+}
+
+/// `(total, pending)` baked-audio counts for a library deck — drives the
+/// per-deck "Generating audio N/M" indicator.
+#[tauri::command]
+pub fn tts_deck_status(
+    app: AppHandle,
+    state: State<DbState>,
+    deck_id: String,
+) -> Result<DeckGenStatus, String> {
+    let (installed, sides) = {
+        let conn = state.0.lock().map_err(|e| format!("Lock error: {}", e))?;
+        (read_installed_langs(&conn), db::get_deck_tts_sides(&conn, &deck_id)?)
+    };
+
+    let mut seen: HashSet<(String, String)> = HashSet::new();
+    let mut total = 0i64;
+    let mut pending = 0i64;
+    for (content, content_type, lang) in sides {
+        if !installed.iter().any(|l| l == &lang) {
+            continue;
+        }
+        let text = synth_text(&content, &content_type);
+        if text.trim().is_empty() {
+            continue;
+        }
+        if !seen.insert((lang.clone(), text.clone())) {
+            continue;
+        }
+        total += 1;
+        if !cache_has(&app, &lang, &text)? {
+            pending += 1;
+        }
+    }
+    Ok(DeckGenStatus { total, pending })
+}
+
+/// Bake one language's batch of clips, then **evict** the model by stopping the
+/// daemon — so no more than one model is ever resident. Best-effort per clip.
+#[tauri::command]
+pub async fn bake_tts(app: AppHandle, lang: String, texts: Vec<String>) -> Result<(), String> {
+    for text in texts {
+        let _ = synthesize_tts(app.clone(), text, lang.clone()).await;
+    }
+    kill_daemon(&app); // free the model's memory before the next language
+    Ok(())
+}
+
+/// Delete cached WAVs no longer referenced by any current card side
+/// (reference-aware GC — WAVs are shared by `(lang, text)`). Returns count removed.
+#[tauri::command]
+pub fn tts_gc(app: AppHandle, state: State<DbState>) -> Result<u64, String> {
+    let sides = {
+        let conn = state.0.lock().map_err(|e| format!("Lock error: {}", e))?;
+        let user = db::get_active_user(&conn)?.ok_or_else(|| "No active user".to_string())?;
+        db::get_tts_sides(&conn, &user.id)?
+    };
+
+    let mut keep: HashSet<String> = HashSet::new();
+    for (content, content_type, lang) in sides {
+        let text = synth_text(&content, &content_type);
+        if text.trim().is_empty() {
+            continue;
+        }
+        keep.insert(cache_filename(&lang, &text));
+    }
+
+    let cache = get_cache_dir(&app)?;
+    let mut removed = 0u64;
+    if let Ok(entries) = fs::read_dir(&cache) {
+        for entry in entries.flatten() {
+            let name = entry.file_name().to_string_lossy().to_string();
+            if name.ends_with(".wav") && !keep.contains(&name) && fs::remove_file(entry.path()).is_ok() {
+                removed += 1;
+            }
+        }
+    }
+    Ok(removed)
 }
 
 /// Synthesize `text` in `lang` to a cached WAV and return its absolute path.

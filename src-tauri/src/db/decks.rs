@@ -346,6 +346,66 @@ pub fn get_used_tts_langs(conn: &Connection, user_id: &str) -> Result<Vec<String
     Ok(langs)
 }
 
+/// Every speakable card side (library + course) as `(content, content_type,
+/// lang)`, where `lang` is the side's spoken language (NULL/empty => `en`).
+/// The TTS crawler turns these into (lang, synth-text) pairs and bakes the ones
+/// whose audio isn't cached yet.
+pub fn get_tts_sides(conn: &Connection, user_id: &str) -> Result<Vec<(String, String, String)>, String> {
+    let sql = "
+        SELECT content, content_type, lang FROM (
+            SELECT c.front AS content, c.front_type AS content_type,
+                   COALESCE(NULLIF(c.front_tts_lang, ''), 'en') AS lang
+              FROM cards c JOIN decks d ON d.id = c.deck_id WHERE d.user_id = ?1
+            UNION ALL
+            SELECT c.back, c.back_type, COALESCE(NULLIF(c.back_tts_lang, ''), 'en')
+              FROM cards c JOIN decks d ON d.id = c.deck_id WHERE d.user_id = ?1
+            UNION ALL
+            SELECT cc.front, cc.front_type, COALESCE(NULLIF(cc.front_tts_lang, ''), 'en')
+              FROM course_cards cc
+              JOIN course_decks cd ON cd.id = cc.course_deck_id
+              JOIN courses co ON co.id = cd.course_id WHERE co.user_id = ?1
+            UNION ALL
+            SELECT cc.back, cc.back_type, COALESCE(NULLIF(cc.back_tts_lang, ''), 'en')
+              FROM course_cards cc
+              JOIN course_decks cd ON cd.id = cc.course_deck_id
+              JOIN courses co ON co.id = cd.course_id WHERE co.user_id = ?1
+        )";
+    collect_sides(conn, sql, params![user_id])
+}
+
+/// Speakable sides for a single library deck (for the per-deck "generating N/M"
+/// indicator).
+pub fn get_deck_tts_sides(conn: &Connection, deck_id: &str) -> Result<Vec<(String, String, String)>, String> {
+    let sql = "
+        SELECT front AS content, front_type AS content_type,
+               COALESCE(NULLIF(front_tts_lang, ''), 'en') AS lang FROM cards WHERE deck_id = ?1
+        UNION ALL
+        SELECT back, back_type, COALESCE(NULLIF(back_tts_lang, ''), 'en') FROM cards WHERE deck_id = ?1";
+    collect_sides(conn, sql, params![deck_id])
+}
+
+fn collect_sides(
+    conn: &Connection,
+    sql: &str,
+    p: impl rusqlite::Params,
+) -> Result<Vec<(String, String, String)>, String> {
+    let mut stmt = conn
+        .prepare(sql)
+        .map_err(|e| format!("Failed to prepare sides query: {}", e))?;
+    let rows = stmt
+        .query_map(p, |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+            ))
+        })
+        .map_err(|e| format!("Failed to query sides: {}", e))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| format!("Failed to collect sides: {}", e))?;
+    Ok(rows)
+}
+
 // ============================================
 // Tag Operations
 // ============================================

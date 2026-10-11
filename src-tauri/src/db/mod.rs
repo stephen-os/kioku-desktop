@@ -18,8 +18,8 @@ pub use state::{init_database, DbState};
 // Deck operations
 pub use decks::{
     add_tag_to_card, create_card, create_deck, create_tag, delete_card, delete_deck, delete_tag,
-    get_all_decks, get_card, get_cards_for_deck, get_deck, get_tag_by_name,
-    get_tags_for_card, get_tags_for_deck, get_used_tts_langs, remove_tag_from_card,
+    get_all_decks, get_card, get_cards_for_deck, get_deck, get_deck_tts_sides, get_tag_by_name,
+    get_tags_for_card, get_tags_for_deck, get_tts_sides, get_used_tts_langs, remove_tag_from_card,
     toggle_deck_favorite, update_card, update_deck,
 };
 
