@@ -3,8 +3,8 @@ use tauri::State;
 
 use crate::db::{
     self, AddLessonItemRequest, Card, Course, CreateCourseRequest, CreateLessonRequest, DbState,
-    Deck, Lesson, LessonItem, LessonProgress, Page, Quiz, ReorderLessonItemsRequest,
-    ReorderLessonsRequest, UpdateCourseRequest, UpdateLessonRequest,
+    Deck, Lesson, LessonItem, LessonProgress, Page, QuestionAnswer, Quiz, QuizAttempt,
+    ReorderLessonItemsRequest, ReorderLessonsRequest, UpdateCourseRequest, UpdateLessonRequest,
 };
 
 // ============================================
@@ -292,6 +292,18 @@ pub fn adopt_course_page(state: State<DbState>, course_page_id: String) -> Resul
     let conn = state.0.lock().map_err(|e| format!("Lock error: {}", e))?;
     let user = db::get_active_user(&conn)?.ok_or_else(|| "No active user".to_string())?;
     db::adopt_course_page(&conn, &user.id, &course_page_id)
+}
+
+/// Grade a course quiz in-memory (not persisted to quiz_attempts) and return a
+/// QuizAttempt-shaped result for the results screen.
+#[tauri::command]
+pub fn grade_course_quiz(
+    state: State<DbState>,
+    course_quiz_id: String,
+    answers: Vec<QuestionAnswer>,
+) -> Result<QuizAttempt, String> {
+    let conn = state.0.lock().map_err(|e| format!("Lock error: {}", e))?;
+    db::grade_course_quiz(&conn, &course_quiz_id, &answers)
 }
 
 #[tauri::command]

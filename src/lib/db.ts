@@ -10,6 +10,7 @@ import type {
   Quiz,
   Question,
   QuizAttempt,
+  QuestionAnswer,
   QuizStats,
   CreateQuizRequest,
   UpdateQuizRequest,
@@ -413,6 +414,14 @@ export async function adoptCourseQuiz(courseQuizId: string): Promise<string> {
 
 export async function adoptCoursePage(coursePageId: string): Promise<string> {
   return invoke<string>("adopt_course_page", { coursePageId });
+}
+
+// Grade a course quiz (not persisted); returns a QuizAttempt-shaped result.
+export async function gradeCourseQuiz(
+  courseQuizId: string,
+  answers: QuestionAnswer[]
+): Promise<QuizAttempt> {
+  return invoke<QuizAttempt>("grade_course_quiz", { courseQuizId, answers });
 }
 
 export async function linkCourseItems(courseId: string): Promise<LinkItemsResult> {

@@ -6,7 +6,10 @@
 use rusqlite::{params, Connection};
 use uuid::Uuid;
 
-use super::models::{Card, Choice, Deck, Page, Question, QuestionType, Quiz};
+use super::models::{
+    Card, Choice, Deck, Page, Question, QuestionAnswer, QuestionResult, QuestionType, Quiz,
+    QuizAttempt,
+};
 
 // ============================================
 // Decks & Cards (read)
@@ -555,4 +558,97 @@ pub fn delete_course_notebook(conn: &Connection, id: &str) -> Result<(), String>
     conn.execute("DELETE FROM course_notebooks WHERE id = ?1", params![id])
         .map_err(|e| format!("Failed to delete course notebook: {}", e))?;
     Ok(())
+}
+
+// ============================================
+// Grading (course quizzes aren't in quiz_attempts; grade in-memory and return a
+// QuizAttempt-shaped result the existing results screen can render)
+// ============================================
+
+pub fn grade_course_quiz(
+    conn: &Connection,
+    course_quiz_id: &str,
+    answers: &[QuestionAnswer],
+) -> Result<QuizAttempt, String> {
+    let quiz = get_course_quiz(conn, course_quiz_id)?;
+    let total = quiz.questions.len() as i32;
+    let now = chrono::Utc::now().to_rfc3339();
+
+    let mut correct = 0;
+    let mut results = Vec::new();
+    for a in answers {
+        let is_correct = grade_course_answer(conn, &a.question_id, &a.answer)?;
+        if is_correct {
+            correct += 1;
+        }
+        results.push(QuestionResult {
+            id: Uuid::new_v4().to_string(),
+            attempt_id: String::new(),
+            question_id: a.question_id.clone(),
+            user_answer: Some(a.answer.clone()),
+            is_correct,
+        });
+    }
+
+    let score = if total > 0 {
+        ((correct as f64 / total as f64) * 100.0).round() as i32
+    } else {
+        0
+    };
+
+    Ok(QuizAttempt {
+        id: String::new(),
+        quiz_id: course_quiz_id.to_string(),
+        started_at: now.clone(),
+        completed_at: Some(now),
+        duration_seconds: None,
+        total_questions: total,
+        correct_answers: correct,
+        score_percentage: score,
+        question_results: results,
+    })
+}
+
+fn grade_course_answer(
+    conn: &Connection,
+    course_question_id: &str,
+    user_answer: &str,
+) -> Result<bool, String> {
+    let (question_type, correct_answer): (String, Option<String>) = conn
+        .query_row(
+            "SELECT question_type, correct_answer FROM course_questions WHERE id = ?1",
+            params![course_question_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .map_err(|e| format!("Course question not found: {}", e))?;
+
+    match question_type.as_str() {
+        "fill_in_blank" => {
+            let user_trimmed = user_answer.trim().to_lowercase();
+            let correct_trimmed = correct_answer.as_deref().map(|s| s.trim().to_lowercase());
+            Ok(correct_trimmed.as_deref() == Some(user_trimmed.as_str()))
+        }
+        "multiple_choice" => {
+            let mut stmt = conn
+                .prepare("SELECT id FROM course_choices WHERE course_question_id = ?1 AND is_correct = 1")
+                .map_err(|e| format!("Failed to prepare query: {}", e))?;
+            let correct_ids: Vec<String> = stmt
+                .query_map(params![course_question_id], |row| row.get(0))
+                .map_err(|e| format!("Failed to query choices: {}", e))?
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|e| format!("Failed to collect choices: {}", e))?;
+
+            let mut user_ids: Vec<&str> = user_answer
+                .split(',')
+                .map(|s| s.trim())
+                .filter(|s| !s.is_empty())
+                .collect();
+            user_ids.sort();
+            let mut correct_sorted = correct_ids.clone();
+            correct_sorted.sort();
+
+            Ok(user_ids == correct_sorted.iter().map(|s| s.as_str()).collect::<Vec<_>>())
+        }
+        _ => Ok(false),
+    }
 }

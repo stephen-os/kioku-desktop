@@ -89,6 +89,7 @@ pub fn run() {
             commands::courses::adopt_course_deck,
             commands::courses::adopt_course_quiz,
             commands::courses::adopt_course_page,
+            commands::courses::grade_course_quiz,
             commands::courses::link_course_items,
             // Quiz tag commands
             commands::quizzes::get_tags_for_quiz,

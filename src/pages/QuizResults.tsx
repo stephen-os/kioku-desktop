@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef } from "react";
-import { useParams, Link, useSearchParams } from "react-router-dom";
+import { useParams, Link, useSearchParams, useLocation } from "react-router-dom";
 import type { Quiz, QuizAttempt, Question } from "@/types";
 import { CODE_LANGUAGE_LABELS } from "@/types";
-import { getQuiz, getQuizAttempt, recordLessonProgress } from "@/lib/db";
+import { getQuiz, getQuizAttempt, recordLessonProgress, getCourseQuiz } from "@/lib/db";
 import { CodeBlock } from "@/components/CodeEditor";
 import { BackButton } from "@/components";
 import { useToast } from "@/context/ToastContext";
@@ -11,6 +11,10 @@ import { formatTimerDuration } from "@/lib/utils";
 export function QuizResults() {
   const { id, attemptId } = useParams<{ id: string; attemptId: string }>();
   const [searchParams] = useSearchParams();
+  const location = useLocation();
+  // Course quiz results aren't persisted: the attempt is passed via navigation
+  // state, and `attemptId` is the "course" sentinel from TakeQuiz.
+  const isCourse = attemptId === "course";
   const toast = useToast();
   const [quiz, setQuiz] = useState<Quiz | null>(null);
   const [attempt, setAttempt] = useState<QuizAttempt | null>(null);
@@ -29,12 +33,19 @@ export function QuizResults() {
     async function loadResults() {
       if (!id || !attemptId) return;
       try {
-        const [quizData, attemptData] = await Promise.all([
-          getQuiz(id),
-          getQuizAttempt(attemptId),
-        ]);
-        setQuiz(quizData);
-        setAttempt(attemptData);
+        if (isCourse) {
+          const quizData = await getCourseQuiz(id);
+          setQuiz(quizData);
+          const state = location.state as { courseAttempt?: QuizAttempt } | null;
+          setAttempt(state?.courseAttempt ?? null);
+        } else {
+          const [quizData, attemptData] = await Promise.all([
+            getQuiz(id),
+            getQuizAttempt(attemptId),
+          ]);
+          setQuiz(quizData);
+          setAttempt(attemptData);
+        }
       } catch (error) {
         console.error("Failed to load results:", error);
         toast.error("Failed to load quiz results");
@@ -43,7 +54,7 @@ export function QuizResults() {
       }
     }
     loadResults();
-  }, [id, attemptId, toast]);
+  }, [id, attemptId, isCourse, location.state, toast]);
 
   // In course context, passing the quiz (meeting any required min score) records
   // lesson progress (R2-2: quizzes are the real gate). Fires once.

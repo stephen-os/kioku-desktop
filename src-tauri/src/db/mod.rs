@@ -34,6 +34,7 @@ pub use course_content::{
     copy_page_to_course, copy_quiz_to_course, create_course_deck, create_course_notebook,
     create_course_page, create_course_quiz, delete_course_deck, delete_course_notebook,
     delete_course_quiz, get_course_cards, get_course_deck, get_course_page, get_course_quiz,
+    grade_course_quiz,
 };
 
 // Lesson operations

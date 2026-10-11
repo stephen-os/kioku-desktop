@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import type { Quiz, QuestionAnswer } from "@/types";
 import { CODE_LANGUAGE_LABELS } from "@/types";
-import { getQuiz, startQuizAttempt, submitQuizAttempt } from "@/lib/db";
+import { getQuiz, startQuizAttempt, submitQuizAttempt, getCourseQuiz, gradeCourseQuiz } from "@/lib/db";
 import { shuffle } from "@/lib/utils";
 import { CodeBlock } from "@/components/CodeEditor";
 import { BackButton } from "@/components";
@@ -11,6 +11,7 @@ import { useToast } from "@/context/ToastContext";
 export function TakeQuiz() {
   const { id } = useParams<{ id: string }>();
   const [searchParams] = useSearchParams();
+  const isCourse = (searchParams.get("source") || "") === "course";
   const navigate = useNavigate();
   const toast = useToast();
   const [quiz, setQuiz] = useState<Quiz | null>(null);
@@ -46,6 +47,15 @@ export function TakeQuiz() {
     async function loadQuiz() {
       if (!id) return;
       try {
+        // Course-owned quiz: load from the course store; no persisted attempt
+        // (graded in-memory on submit). A sentinel attemptId marks it "started".
+        if (isCourse) {
+          const quizData = await getCourseQuiz(id);
+          if (cancelled) return;
+          setQuiz(quizData);
+          setAttemptId("course");
+          return;
+        }
         const [quizData, attempt] = await Promise.all([
           getQuiz(id),
           startQuizAttempt(id),
@@ -68,7 +78,7 @@ export function TakeQuiz() {
     return () => {
       cancelled = true;
     };
-  }, [id]);
+  }, [id, isCourse]);
 
   // Warn users when leaving mid-quiz
   useEffect(() => {
@@ -123,7 +133,7 @@ export function TakeQuiz() {
   }, [currentIndex]);
 
   const handleSubmit = useCallback(async () => {
-    if (!attemptId) return;
+    if (!attemptId || !id) return;
 
     setSubmitting(true);
     try {
@@ -132,17 +142,28 @@ export function TakeQuiz() {
         answer: answers[q.id] || "",
       }));
 
+      const ctx = searchParams.toString();
+
+      // Course quiz: grade in-memory and pass the result to the results screen
+      // via navigation state (no persisted attempt).
+      if (isCourse) {
+        const attempt = await gradeCourseQuiz(id, questionAnswers);
+        navigate(`/quizzes/${id}/results/course${ctx ? `?${ctx}` : ""}`, {
+          state: { courseAttempt: attempt },
+        });
+        return;
+      }
+
       await submitQuizAttempt(attemptId, { answers: questionAnswers });
       // Forward any course context so the results screen can record progress
       // and offer "Back to Course".
-      const ctx = searchParams.toString();
       navigate(`/quizzes/${id}/results/${attemptId}${ctx ? `?${ctx}` : ""}`);
     } catch (error) {
       console.error("Failed to submit quiz:", error);
       toast.error("Failed to submit quiz");
       setSubmitting(false);
     }
-  }, [attemptId, questions, answers, navigate, id, toast, searchParams]);
+  }, [attemptId, questions, answers, navigate, id, toast, searchParams, isCourse]);
 
   // Keyboard navigation
   useEffect(() => {
