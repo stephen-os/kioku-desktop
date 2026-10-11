@@ -10,7 +10,7 @@ import {
   updateLesson,
   deleteLesson,
   reorderLessons,
-  addLessonItem,
+  courseAddItem,
   removeLessonItem,
   reorderLessonItems,
   getAllDecks,
@@ -209,15 +209,18 @@ export function CourseEditor() {
     if (!targetLessonId) return;
 
     try {
-      await addLessonItem(targetLessonId, {
+      // Copy the library item into the course (the course then OWNS the copy).
+      await courseAddItem({
+        lessonId: targetLessonId,
         itemType,
-        itemName,
-        itemId,
+        mode: "library",
+        sourceId: itemId,
+        name: itemName,
       });
       setShowAddItemModal(false);
       setSearchTerm("");
       loadData();
-      toast.success(`${itemType === "deck" ? "Deck" : "Quiz"} added to lesson`);
+      toast.success(`${itemType === "deck" ? "Deck" : "Quiz"} copied into lesson`);
     } catch (error) {
       console.error("Failed to add item:", error);
       toast.error("Failed to add item");
