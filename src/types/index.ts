@@ -53,7 +53,8 @@ export interface Card {
   backType: ContentType;
   backLanguage: CodeLanguage | null;
   notes: string | null;
-  ttsLang: TtsLang | null;
+  frontTtsLang: TtsLang | null;
+  backTtsLang: TtsLang | null;
   tags: Tag[];
   createdAt: string;
   updatedAt: string;
@@ -258,7 +259,8 @@ export interface CreateCardRequest {
   backType?: ContentType;
   backLanguage?: CodeLanguage;
   notes?: string;
-  ttsLang?: TtsLang | null;
+  frontTtsLang?: TtsLang | null;
+  backTtsLang?: TtsLang | null;
 }
 
 export interface UpdateCardRequest {
@@ -269,7 +271,8 @@ export interface UpdateCardRequest {
   backType?: ContentType;
   backLanguage?: CodeLanguage;
   notes?: string;
-  ttsLang?: TtsLang | null;
+  frontTtsLang?: TtsLang | null;
+  backTtsLang?: TtsLang | null;
 }
 
 // ============================================

@@ -66,7 +66,8 @@ pub fn import_deck_from_file(
         front_language: Option<String>,
         back_language: Option<String>,
         notes: Option<String>,
-        tts_lang: Option<String>,
+        front_tts_lang: Option<String>,
+        back_tts_lang: Option<String>,
         #[serde(default)]
         tags: Vec<String>,
     }
@@ -107,7 +108,8 @@ pub fn import_deck_from_file(
                 back_type: Some(card.back_type),
                 back_language: card.back_language,
                 notes: card.notes,
-                tts_lang: card.tts_lang,
+                front_tts_lang: card.front_tts_lang,
+                back_tts_lang: card.back_tts_lang,
             };
             let created_card = db::create_card(&conn, &deck.id, &request)?;
 
@@ -178,7 +180,8 @@ pub fn export_deck_to_json(state: State<DbState>, deck_id: String) -> Result<Str
         front_language: Option<String>,
         back_language: Option<String>,
         notes: Option<String>,
-        tts_lang: Option<String>,
+        front_tts_lang: Option<String>,
+        back_tts_lang: Option<String>,
         tags: Vec<String>,
     }
 
@@ -196,7 +199,8 @@ pub fn export_deck_to_json(state: State<DbState>, deck_id: String) -> Result<Str
                 front_language: c.front_language,
                 back_language: c.back_language,
                 notes: c.notes,
-                tts_lang: c.tts_lang,
+                front_tts_lang: c.front_tts_lang,
+                back_tts_lang: c.back_tts_lang,
                 tags: c.tags.into_iter().map(|t| t.name).collect(),
             })
             .collect(),
@@ -513,7 +517,8 @@ pub fn import_course_from_file(
         front_language: Option<String>,
         back_language: Option<String>,
         notes: Option<String>,
-        tts_lang: Option<String>,
+        front_tts_lang: Option<String>,
+        back_tts_lang: Option<String>,
         #[serde(default)]
         tags: Vec<String>,
     }
@@ -596,7 +601,8 @@ pub fn import_course_from_file(
                     back_type: Some(card.back_type.clone()),
                     back_language: card.back_language.clone(),
                     notes: card.notes.clone(),
-                    tts_lang: card.tts_lang.clone(),
+                    front_tts_lang: card.front_tts_lang.clone(),
+                    back_tts_lang: card.back_tts_lang.clone(),
                 };
                 let created_card = db::create_card(&conn, &deck.id, &request)?;
 
@@ -816,7 +822,9 @@ pub fn export_course_to_json(state: State<DbState>, course_id: String) -> Result
         #[serde(skip_serializing_if = "Option::is_none")]
         notes: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
-        tts_lang: Option<String>,
+        front_tts_lang: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        back_tts_lang: Option<String>,
         #[serde(skip_serializing_if = "Vec::is_empty")]
         tags: Vec<String>,
     }
@@ -891,7 +899,8 @@ pub fn export_course_to_json(state: State<DbState>, course_id: String) -> Result
                         front_language: c.front_language,
                         back_language: c.back_language,
                         notes: c.notes,
-                        tts_lang: c.tts_lang,
+                        front_tts_lang: c.front_tts_lang,
+                        back_tts_lang: c.back_tts_lang,
                         tags: c.tags.into_iter().map(|t| t.name).collect(),
                     })
                     .collect(),

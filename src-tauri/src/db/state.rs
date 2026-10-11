@@ -32,10 +32,22 @@ pub fn init_database(app: &AppHandle) -> Result<Connection, String> {
     conn.execute_batch(schema)
         .map_err(|e| format!("Failed to initialize database schema: {}", e))?;
 
-    // Additive migration for databases created before a column existed (there is
+    // Additive migrations for databases created before a column existed (there is
     // no versioned-migration system). ADD COLUMN errors with "duplicate column
     // name" once applied, which we deliberately ignore so this stays idempotent.
-    let _ = conn.execute("ALTER TABLE cards ADD COLUMN tts_lang TEXT", []);
+    let _ = conn.execute("ALTER TABLE cards ADD COLUMN front_tts_lang TEXT", []);
+    let _ = conn.execute("ALTER TABLE cards ADD COLUMN back_tts_lang TEXT", []);
+    // Carry over the earlier single per-card spoken-language column (if this DB
+    // has it) into both sides. The UPDATEs no-op (error, ignored) on DBs that
+    // never had `tts_lang`.
+    let _ = conn.execute(
+        "UPDATE cards SET front_tts_lang = tts_lang WHERE front_tts_lang IS NULL AND tts_lang IS NOT NULL",
+        [],
+    );
+    let _ = conn.execute(
+        "UPDATE cards SET back_tts_lang = tts_lang WHERE back_tts_lang IS NULL AND tts_lang IS NOT NULL",
+        [],
+    );
 
     Ok(conn)
 }

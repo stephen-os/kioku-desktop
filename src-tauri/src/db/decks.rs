@@ -153,11 +153,12 @@ pub fn create_card(
 
     conn.execute(
         "INSERT INTO cards (id, deck_id, front, front_type, front_language,
-         back, back_type, back_language, notes, tts_lang, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+         back, back_type, back_language, notes, front_tts_lang, back_tts_lang, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
         params![
             id, deck_id, request.front, front_type, request.front_language,
-            request.back, back_type, request.back_language, request.notes, request.tts_lang, now, now
+            request.back, back_type, request.back_language, request.notes,
+            request.front_tts_lang, request.back_tts_lang, now, now
         ],
     )
     .map_err(|e| format!("Failed to create card: {}", e))?;
@@ -172,7 +173,7 @@ pub fn get_cards_for_deck(conn: &Connection, deck_id: &str) -> Result<Vec<Card>,
         .prepare(
             "SELECT id, deck_id, front, front_type, front_language,
                     back, back_type, back_language, notes,
-                    created_at, updated_at, tts_lang
+                    created_at, updated_at, front_tts_lang, back_tts_lang
              FROM cards WHERE deck_id = ?1 ORDER BY created_at ASC",
         )
         .map_err(|e| format!("Failed to prepare query: {}", e))?;
@@ -191,7 +192,8 @@ pub fn get_cards_for_deck(conn: &Connection, deck_id: &str) -> Result<Vec<Card>,
                 notes: row.get(8)?,
                 created_at: row.get(9)?,
                 updated_at: row.get(10)?,
-                tts_lang: row.get(11)?,
+                front_tts_lang: row.get(11)?,
+                back_tts_lang: row.get(12)?,
                 tags: vec![],
             })
         })
@@ -244,7 +246,7 @@ pub fn get_card(conn: &Connection, id: &str, deck_id: &str) -> Result<Card, Stri
         .query_row(
             "SELECT id, deck_id, front, front_type, front_language,
                     back, back_type, back_language, notes,
-                    created_at, updated_at, tts_lang
+                    created_at, updated_at, front_tts_lang, back_tts_lang
              FROM cards WHERE id = ?1 AND deck_id = ?2",
             params![id, deck_id],
             |row| {
@@ -260,7 +262,8 @@ pub fn get_card(conn: &Connection, id: &str, deck_id: &str) -> Result<Card, Stri
                     notes: row.get(8)?,
                     created_at: row.get(9)?,
                     updated_at: row.get(10)?,
-                    tts_lang: row.get(11)?,
+                    front_tts_lang: row.get(11)?,
+                    back_tts_lang: row.get(12)?,
                     tags: vec![],
                 })
             },
@@ -283,11 +286,13 @@ pub fn update_card(
 
     conn.execute(
         "UPDATE cards SET front = ?1, front_type = ?2, front_language = ?3,
-         back = ?4, back_type = ?5, back_language = ?6, notes = ?7, tts_lang = ?8, updated_at = ?9
-         WHERE id = ?10 AND deck_id = ?11",
+         back = ?4, back_type = ?5, back_language = ?6, notes = ?7,
+         front_tts_lang = ?8, back_tts_lang = ?9, updated_at = ?10
+         WHERE id = ?11 AND deck_id = ?12",
         params![
             request.front, front_type, request.front_language,
-            request.back, back_type, request.back_language, request.notes, request.tts_lang, now, id, deck_id
+            request.back, back_type, request.back_language, request.notes,
+            request.front_tts_lang, request.back_tts_lang, now, id, deck_id
         ],
     )
     .map_err(|e| format!("Failed to update card: {}", e))?;

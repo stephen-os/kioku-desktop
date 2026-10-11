@@ -470,7 +470,8 @@ function CardModal({ card, deckId, deckTags, onSave, onClose, onTagsChange }: Ca
     card?.backLanguage || null
   );
   const [notes, setNotes] = useState(card?.notes || "");
-  const [ttsLang, setTtsLang] = useState<TtsLang>((card?.ttsLang as TtsLang) || "en");
+  const [frontTtsLang, setFrontTtsLang] = useState<TtsLang>((card?.frontTtsLang as TtsLang) || "en");
+  const [backTtsLang, setBackTtsLang] = useState<TtsLang>((card?.backTtsLang as TtsLang) || "en");
   const [saving, setSaving] = useState(false);
 
   // Tag editing state
@@ -592,7 +593,8 @@ function CardModal({ card, deckId, deckTags, onSave, onClose, onTagsChange }: Ca
         backType,
         backLanguage: backType === "CODE" ? backLanguage || undefined : undefined,
         notes: notes.trim() || undefined,
-        ttsLang,
+        frontTtsLang,
+        backTtsLang,
       };
 
       onSave(request);
@@ -763,24 +765,47 @@ function CardModal({ card, deckId, deckTags, onSave, onClose, onTagsChange }: Ca
             />
           </div>
 
-          {/* Spoken language (read-aloud) — applies to text sides; code is not read */}
+          {/* Spoken language (read-aloud) — per side; applies to text only, code is not read */}
           {(frontType === "TEXT" || backType === "TEXT") && (
             <div>
               <label className="block text-sm font-medium text-[#939293] mb-2">
                 Spoken language
               </label>
-              <select
-                value={ttsLang}
-                onChange={(e) => setTtsLang(e.target.value as TtsLang)}
-                className="px-3 py-2 bg-[#2d2a2e] border border-[#5b595c] rounded-lg text-[#fcfcfa] text-sm focus:outline-none focus:border-[#ffd866]"
-              >
-                {TTS_LANGUAGES.map((l) => (
-                  <option key={l.code} value={l.code}>
-                    {l.label}
-                  </option>
-                ))}
-              </select>
-              <p className="mt-1 text-xs text-[#6b696b]">Voice used when reading this card aloud.</p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {frontType === "TEXT" && (
+                  <div>
+                    <span className="block text-xs text-[#939293] mb-1">Front</span>
+                    <select
+                      value={frontTtsLang}
+                      onChange={(e) => setFrontTtsLang(e.target.value as TtsLang)}
+                      className="w-full px-3 py-2 bg-[#2d2a2e] border border-[#5b595c] rounded-lg text-[#fcfcfa] text-sm focus:outline-none focus:border-[#ffd866]"
+                    >
+                      {TTS_LANGUAGES.map((l) => (
+                        <option key={l.code} value={l.code}>
+                          {l.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+                {backType === "TEXT" && (
+                  <div>
+                    <span className="block text-xs text-[#939293] mb-1">Back</span>
+                    <select
+                      value={backTtsLang}
+                      onChange={(e) => setBackTtsLang(e.target.value as TtsLang)}
+                      className="w-full px-3 py-2 bg-[#2d2a2e] border border-[#5b595c] rounded-lg text-[#fcfcfa] text-sm focus:outline-none focus:border-[#ffd866]"
+                    >
+                      {TTS_LANGUAGES.map((l) => (
+                        <option key={l.code} value={l.code}>
+                          {l.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+              </div>
+              <p className="mt-1 text-xs text-[#6b696b]">Voice used when reading each side aloud.</p>
             </div>
           )}
 

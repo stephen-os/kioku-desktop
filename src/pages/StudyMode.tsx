@@ -282,7 +282,8 @@ export function StudyMode() {
     if (!currentCard) return;
     const content = isFlipped ? currentCard.back : currentCard.front;
     const type = isFlipped ? currentCard.backType : currentCard.frontType;
-    speak(textForSpeech(content, type), currentCard.ttsLang ?? "en", { voice: "", volume: 1 });
+    const lang = isFlipped ? currentCard.backTtsLang : currentCard.frontTtsLang;
+    speak(textForSpeech(content, type), lang ?? "en", { voice: "", volume: 1 });
   };
 
   // True only when a flashcard is actually on screen (not the tag-filter or
@@ -297,7 +298,8 @@ export function StudyMode() {
     if (!viewingCard || !autoRead) return;
     const content = isFlipped ? currentCard!.back : currentCard!.front;
     const type = isFlipped ? currentCard!.backType : currentCard!.frontType;
-    speak(textForSpeech(content, type), currentCard!.ttsLang ?? "en", { voice: "", volume: 1 });
+    const lang = isFlipped ? currentCard!.backTtsLang : currentCard!.frontTtsLang;
+    speak(textForSpeech(content, type), lang ?? "en", { voice: "", volume: 1 });
   }, [currentIndex, isFlipped, autoRead, viewingCard, currentCard]);
 
   // Stop audio when leaving study mode.
@@ -307,9 +309,9 @@ export function StudyMode() {
   // flip or Next plays instantly. Only while viewing a card. Best-effort.
   useEffect(() => {
     if (!viewingCard) return;
-    prefetchTts(textForSpeech(currentCard!.back, currentCard!.backType), currentCard!.ttsLang ?? "en");
+    prefetchTts(textForSpeech(currentCard!.back, currentCard!.backType), currentCard!.backTtsLang ?? "en");
     const next = cards[currentIndex + 1];
-    if (next) prefetchTts(textForSpeech(next.front, next.frontType), next.ttsLang ?? "en");
+    if (next) prefetchTts(textForSpeech(next.front, next.frontType), next.frontTtsLang ?? "en");
   }, [currentIndex, viewingCard, currentCard, cards]);
 
   const handleFlip = useCallback(() => {

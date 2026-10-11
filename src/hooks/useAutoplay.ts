@@ -291,7 +291,7 @@ export function useAutoplay({ cards, onComplete }: UseAutoplayOptions): UseAutop
           setPhase("front");
           const frontText = prepareTextForTTS(card.front, card.frontType);
           console.log("[Autoplay] Front text:", frontText.substring(0, 50));
-          await speakTextAsync(frontText, card.ttsLang ?? "en");
+          await speakTextAsync(frontText, card.frontTtsLang ?? "en");
 
           if (isCancelled || !isPlayingRef.current) return false;
         }
@@ -310,7 +310,7 @@ export function useAutoplay({ cards, onComplete }: UseAutoplayOptions): UseAutop
         if (shouldShowBack) {
           setPhase("back");
           const backText = prepareTextForTTS(card.back, card.backType);
-          await speakTextAsync(backText, card.ttsLang ?? "en");
+          await speakTextAsync(backText, card.backTtsLang ?? "en");
 
           if (isCancelled || !isPlayingRef.current) return false;
         }
