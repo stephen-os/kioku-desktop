@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { listen, UnlistenFn } from "@tauri-apps/api/event";
+import { TTS_LANGUAGES } from "@/types";
 import { useToast } from "@/context/ToastContext";
 import {
   ttsStatus,
@@ -107,7 +108,7 @@ export function TtsSettings() {
             <div>
               <p className="font-medium text-[#fcfcfa]">MeloTTS Engine</p>
               <p className="text-xs text-[#939293]">
-                {installed ? "Installed and ready" : "High-quality offline, multilingual synthesis"}
+                {installed ? "Installed and ready" : "Natural read-aloud in 6 languages"}
               </p>
             </div>
           </div>
@@ -130,6 +131,15 @@ export function TtsSettings() {
             )}
           </div>
         </div>
+
+        {!installed && !installing && (
+          <p className="mt-3 text-xs text-[#939293] leading-relaxed">
+            Optional. Reads cards aloud in{" "}
+            {TTS_LANGUAGES.map((l) => l.label).join(", ")}. Installing downloads the engine now;
+            each language's voice downloads from Hugging Face on first use and is then cached
+            locally for offline reuse.
+          </p>
+        )}
 
         {installing && downloadProgress?.id === "tts" && (
           <div className="mt-3">

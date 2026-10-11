@@ -76,6 +76,22 @@ fn get_cache_dir(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(get_tts_dir(app)?.join("cache"))
 }
 
+/// `<app_data>/tts/models` — writable Hugging Face cache for models the engine
+/// downloads on first use (fetch-at-install; models are not bundled in the exe).
+fn get_models_dir(app: &AppHandle) -> Result<PathBuf, String> {
+    Ok(get_tts_dir(app)?.join("models"))
+}
+
+/// Point a spawned engine process at the writable model cache via `HF_HOME`, so
+/// Hugging Face downloads/loads models there instead of the user's `~/.cache`.
+fn apply_model_env(cmd: &mut Command, app: &AppHandle) -> Result<(), String> {
+    let models = get_models_dir(app)?;
+    fs::create_dir_all(&models).map_err(|e| format!("Failed to create models dir: {}", e))?;
+    cmd.env("HF_HOME", &models);
+    cmd.env("HF_HUB_DISABLE_SYMLINKS_WARNING", "1");
+    Ok(())
+}
+
 /// Path to the engine executable (`.exe` on Windows) under the engine dir.
 fn get_engine_exe(app: &AppHandle) -> Result<PathBuf, String> {
     let exe_name = if cfg!(windows) {
@@ -290,6 +306,7 @@ pub async fn uninstall_tts(app: AppHandle) -> Result<(), String> {
 
     let engine_dir = get_engine_dir(&app)?;
     let cache_dir = get_cache_dir(&app)?;
+    let models_dir = get_models_dir(&app)?;
 
     if engine_dir.exists() {
         fs::remove_dir_all(&engine_dir)
@@ -298,6 +315,10 @@ pub async fn uninstall_tts(app: AppHandle) -> Result<(), String> {
     if cache_dir.exists() {
         fs::remove_dir_all(&cache_dir)
             .map_err(|e| format!("Failed to remove cache: {}", e))?;
+    }
+    if models_dir.exists() {
+        fs::remove_dir_all(&models_dir)
+            .map_err(|e| format!("Failed to remove models: {}", e))?;
     }
 
     Ok(())
@@ -342,6 +363,7 @@ fn spawn_daemon(app: &AppHandle) -> Result<Daemon, String> {
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::null());
+    apply_model_env(&mut cmd, app)?;
     #[cfg(windows)]
     cmd.creation_flags(CREATE_NO_WINDOW);
 
@@ -507,6 +529,7 @@ pub async fn synthesize_tts(app: AppHandle, text: String, lang: String) -> Resul
         .arg(&text)
         .arg("--out")
         .arg(&out_path);
+    apply_model_env(&mut cmd, &app)?;
     #[cfg(windows)]
     cmd.creation_flags(CREATE_NO_WINDOW);
 
