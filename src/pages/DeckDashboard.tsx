@@ -12,6 +12,7 @@ import {
   SectionHeader,
   CardGrid,
   DeckCard,
+  CourseItemsSection,
 } from "@/components";
 import { useSearchFilter } from "@/hooks";
 import { useToast } from "@/context/ToastContext";
@@ -187,6 +188,8 @@ export function DeckDashboard() {
               namePlaceholder="Filter by deck name..."
               descriptionPlaceholder="Filter by description..."
             />
+
+            <CourseItemsSection itemType="deck" onAdopted={loadData} />
 
             {filteredDecks.length === 0 ? (
               <EmptyState

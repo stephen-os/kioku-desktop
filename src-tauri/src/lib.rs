@@ -63,6 +63,7 @@ pub fn run() {
             commands::courses::update_course,
             commands::courses::delete_course,
             commands::courses::toggle_course_favorite,
+            commands::courses::get_course_items_overview,
             // Lesson commands
             commands::courses::get_lessons,
             commands::courses::get_lesson,

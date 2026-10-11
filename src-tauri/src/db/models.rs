@@ -263,6 +263,24 @@ pub struct UpdateCourseRequest {
     pub open_navigation: bool,
 }
 
+/// A course-owned item flattened with its course/lesson context, for showing
+/// course content (read-only) and "due" items on the library pages.
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct CourseItemOverview {
+    pub course_id: String,
+    pub course_name: String,
+    pub lesson_id: String,
+    pub lesson_item_id: String,
+    pub item_type: String,
+    pub item_id: String,
+    pub item_name: String,
+    pub requirement_type: Option<String>,
+    pub requirement_value: Option<i32>,
+    pub completed: bool,
+    pub locked: bool,
+}
+
 // ============================================
 // Lesson Models
 // ============================================

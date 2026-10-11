@@ -38,6 +38,7 @@ import type {
   ReorderLessonItemsRequest,
   LinkItemsResult,
   CourseImportResult,
+  CourseItemOverview,
   // Notebook types
   Notebook,
   Page,
@@ -426,6 +427,12 @@ export async function gradeCourseQuiz(
 
 export async function linkCourseItems(courseId: string): Promise<LinkItemsResult> {
   return invoke<LinkItemsResult>("link_course_items", { courseId });
+}
+
+// Every course-owned item flattened with lesson context, completion, and lock
+// state — powers the "From your courses" library sections and the due filter.
+export async function getCourseItemsOverview(): Promise<CourseItemOverview[]> {
+  return invoke<CourseItemOverview[]>("get_course_items_overview");
 }
 
 // ============================================

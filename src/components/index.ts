@@ -23,6 +23,9 @@ export {
 // Card components
 export { DeckCard, QuizCard, CourseCard } from "./cards";
 
+// Course components
+export { CourseItemsSection } from "./courses/CourseItemsSection";
+
 // Shortcuts components
 export { ShortcutHint, InlineShortcutHint, ShortcutsHelp } from "./shortcuts";
 

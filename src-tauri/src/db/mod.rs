@@ -25,8 +25,8 @@ pub use decks::{
 
 // Course operations
 pub use courses::{
-    create_course, delete_course, get_all_courses, get_course, get_course_with_lessons,
-    toggle_course_favorite, update_course,
+    create_course, delete_course, get_all_courses, get_course, get_course_items_overview,
+    get_course_with_lessons, toggle_course_favorite, update_course,
 };
 
 // Course-owned content operations

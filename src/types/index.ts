@@ -545,6 +545,22 @@ export interface CourseImportResult {
   itemsLinked: number;
 }
 
+// A course-owned item flattened with its course/lesson context — used to show
+// course content (read-only) and "due" items on the library pages.
+export interface CourseItemOverview {
+  courseId: string;
+  courseName: string;
+  lessonId: string;
+  lessonItemId: string;
+  itemType: LessonItemType;
+  itemId: string;
+  itemName: string;
+  requirementType: RequirementType | null;
+  requirementValue: number | null;
+  completed: boolean;
+  locked: boolean;
+}
+
 // ============================================
 // Notebook Types (Notes Feature)
 // ============================================

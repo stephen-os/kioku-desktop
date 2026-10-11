@@ -12,6 +12,7 @@ import {
   SectionHeader,
   CardGrid,
   QuizCard,
+  CourseItemsSection,
 } from "@/components";
 import { useSearchFilter } from "@/hooks";
 import { useToast } from "@/context/ToastContext";
@@ -202,6 +203,8 @@ export function QuizDashboard() {
               namePlaceholder="Filter by quiz name..."
               descriptionPlaceholder="Filter by description..."
             />
+
+            <CourseItemsSection itemType="quiz" onAdopted={loadData} />
 
             {filteredQuizzes.length === 0 ? (
               <EmptyState

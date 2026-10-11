@@ -1,7 +1,9 @@
 use rusqlite::{params, Connection};
 use uuid::Uuid;
 
-use super::models::{Course, Lesson, LessonItem, LessonItemType, LessonProgress, RequirementType};
+use super::models::{
+    Course, CourseItemOverview, Lesson, LessonItem, LessonItemType, LessonProgress, RequirementType,
+};
 
 // ============================================
 // Course Operations
@@ -121,6 +123,65 @@ pub fn get_course_with_lessons(conn: &Connection, user_id: &str, id: &str) -> Re
         completed_lesson_count: Some(completed_count),
         ..course
     }))
+}
+
+/// Flatten every course-owned item for a user with its course/lesson context,
+/// completion, and lock state (linear gating unless the course is open-nav).
+/// Powers the course-content sections on the library pages.
+pub fn get_course_items_overview(
+    conn: &Connection,
+    user_id: &str,
+) -> Result<Vec<CourseItemOverview>, String> {
+    let courses = get_all_courses(conn, user_id)?;
+    let mut out = Vec::new();
+
+    for course in courses {
+        let full = match get_course_with_lessons(conn, user_id, &course.id)? {
+            Some(c) => c,
+            None => continue,
+        };
+        for (i, lesson) in full.lessons.iter().enumerate() {
+            let locked = !full.open_navigation
+                && full.lessons[..i]
+                    .iter()
+                    .any(|l| !l.is_completed.unwrap_or(false));
+            for item in &lesson.items {
+                let item_id = match &item.item_id {
+                    Some(id) => id.clone(),
+                    None => continue,
+                };
+                let item_type = match item.item_type {
+                    LessonItemType::Deck => "deck",
+                    LessonItemType::Quiz => "quiz",
+                    LessonItemType::Note => "note",
+                };
+                let requirement_type = item.requirement_type.as_ref().map(|r| {
+                    match r {
+                        RequirementType::Study => "study",
+                        RequirementType::Review => "review",
+                        RequirementType::Complete => "complete",
+                        RequirementType::MinScore => "min_score",
+                        RequirementType::Read => "read",
+                    }
+                    .to_string()
+                });
+                out.push(CourseItemOverview {
+                    course_id: course.id.clone(),
+                    course_name: course.name.clone(),
+                    lesson_id: lesson.id.clone(),
+                    lesson_item_id: item.id.clone(),
+                    item_type: item_type.to_string(),
+                    item_id,
+                    item_name: item.item_name.clone(),
+                    requirement_type,
+                    requirement_value: item.requirement_value,
+                    completed: item.is_completed.unwrap_or(false),
+                    locked,
+                });
+            }
+        }
+    }
+    Ok(out)
 }
 
 pub fn update_course(

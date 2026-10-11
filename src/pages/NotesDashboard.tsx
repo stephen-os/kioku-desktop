@@ -8,6 +8,7 @@ import {
   EmptyState,
   SectionHeader,
   CardGrid,
+  CourseItemsSection,
 } from "@/components";
 import { NotebookCard } from "@/components/cards/NotebookCard";
 import { useSearchFilter } from "@/hooks";
@@ -145,6 +146,8 @@ export function NotesDashboard() {
             namePlaceholder="Filter by notebook name..."
             descriptionPlaceholder="Filter by description..."
           />
+
+          <CourseItemsSection itemType="note" onAdopted={loadData} />
 
           {filteredNotebooks.length === 0 ? (
             <EmptyState

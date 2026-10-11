@@ -2,9 +2,10 @@ use rusqlite::params;
 use tauri::State;
 
 use crate::db::{
-    self, AddLessonItemRequest, Card, Course, CreateCourseRequest, CreateLessonRequest, DbState,
-    Deck, Lesson, LessonItem, LessonProgress, Page, QuestionAnswer, Quiz, QuizAttempt,
-    ReorderLessonItemsRequest, ReorderLessonsRequest, UpdateCourseRequest, UpdateLessonRequest,
+    self, AddLessonItemRequest, Card, Course, CourseItemOverview, CreateCourseRequest,
+    CreateLessonRequest, DbState, Deck, Lesson, LessonItem, LessonProgress, Page, QuestionAnswer,
+    Quiz, QuizAttempt, ReorderLessonItemsRequest, ReorderLessonsRequest, UpdateCourseRequest,
+    UpdateLessonRequest,
 };
 
 // ============================================
@@ -87,6 +88,19 @@ pub fn toggle_course_favorite(state: State<DbState>, course_id: String) -> Resul
     let active_user =
         db::get_active_user(&conn)?.ok_or_else(|| "No active user".to_string())?;
     db::toggle_course_favorite(&conn, &active_user.id, &course_id)
+}
+
+/// Every course-owned item (deck/quiz/note) flattened with its lesson context,
+/// completion, and lock state — powers the "From your courses" sections and the
+/// "due from courses" filter on the library pages.
+#[tauri::command]
+pub fn get_course_items_overview(
+    state: State<DbState>,
+) -> Result<Vec<CourseItemOverview>, String> {
+    let conn = state.0.lock().map_err(|e| format!("Lock error: {}", e))?;
+    let active_user =
+        db::get_active_user(&conn)?.ok_or_else(|| "No active user".to_string())?;
+    db::get_course_items_overview(&conn, &active_user.id)
 }
 
 // ============================================
