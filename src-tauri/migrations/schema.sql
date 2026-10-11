@@ -31,6 +31,7 @@ CREATE TABLE IF NOT EXISTS courses (
     user_id TEXT NOT NULL,
     name TEXT NOT NULL,
     description TEXT,
+    open_navigation INTEGER NOT NULL DEFAULT 0,  -- 1 disables linear gating (all lessons unlocked)
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
@@ -49,14 +50,14 @@ CREATE TABLE IF NOT EXISTS lessons (
     FOREIGN KEY (course_id) REFERENCES courses(id) ON DELETE CASCADE
 );
 
--- Lesson items (decks/quizzes within a lesson with optional requirements)
+-- Lesson items (course-owned deck/quiz/note within a lesson with optional requirements)
 CREATE TABLE IF NOT EXISTS lesson_items (
     id TEXT PRIMARY KEY,
     lesson_id TEXT NOT NULL,
-    item_type TEXT NOT NULL,  -- 'deck' or 'quiz'
-    item_id TEXT,             -- FK to decks or quizzes (NULL until the referenced deck/quiz is imported)
-    item_name TEXT NOT NULL,  -- Name for matching during import
-    requirement_type TEXT,    -- NULL, 'study', 'review', 'complete', 'min_score'
+    item_type TEXT NOT NULL,  -- 'deck', 'quiz', or 'note'
+    item_id TEXT,             -- id of the course-owned content (course_decks / course_quizzes / course_pages)
+    item_name TEXT NOT NULL,  -- Display name
+    requirement_type TEXT,    -- NULL, 'study', 'review', 'complete', 'min_score', 'read'
     requirement_value INTEGER, -- For min_score: the percentage required (e.g., 80)
     position INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL,
@@ -81,6 +82,100 @@ CREATE TABLE IF NOT EXISTS lesson_progress (
     FOREIGN KEY (lesson_id) REFERENCES lessons(id) ON DELETE CASCADE,
     FOREIGN KEY (lesson_item_id) REFERENCES lesson_items(id) ON DELETE CASCADE,
     UNIQUE(user_id, lesson_item_id)
+);
+
+-- ============================================
+-- Course-Owned Content
+-- Separate from the personal library: owned by a course, referenced by
+-- lesson_items.item_id, studied/taken/read with the same engines as library
+-- content. Shown read-only in the library and copied out via "Adopt".
+-- ============================================
+
+CREATE TABLE IF NOT EXISTS course_decks (
+    id TEXT PRIMARY KEY,
+    course_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    description TEXT,
+    shuffle_cards INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (course_id) REFERENCES courses(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS course_cards (
+    id TEXT PRIMARY KEY,
+    course_deck_id TEXT NOT NULL,
+    front TEXT NOT NULL,
+    front_type TEXT NOT NULL DEFAULT 'TEXT',
+    front_language TEXT,
+    back TEXT NOT NULL,
+    back_type TEXT NOT NULL DEFAULT 'TEXT',
+    back_language TEXT,
+    notes TEXT,
+    front_tts_lang TEXT,
+    back_tts_lang TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (course_deck_id) REFERENCES course_decks(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS course_quizzes (
+    id TEXT PRIMARY KEY,
+    course_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    description TEXT,
+    shuffle_questions INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (course_id) REFERENCES courses(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS course_questions (
+    id TEXT PRIMARY KEY,
+    course_quiz_id TEXT NOT NULL,
+    question_type TEXT NOT NULL,  -- 'multiple_choice' or 'fill_in_blank'
+    content TEXT NOT NULL,
+    content_type TEXT NOT NULL DEFAULT 'TEXT',  -- 'TEXT' or 'CODE'
+    content_language TEXT,
+    correct_answer TEXT,
+    multiple_answers INTEGER NOT NULL DEFAULT 0,
+    explanation TEXT,
+    position INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (course_quiz_id) REFERENCES course_quizzes(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS course_choices (
+    id TEXT PRIMARY KEY,
+    course_question_id TEXT NOT NULL,
+    text TEXT NOT NULL,
+    is_correct INTEGER NOT NULL DEFAULT 0,
+    position INTEGER NOT NULL DEFAULT 0,
+    FOREIGN KEY (course_question_id) REFERENCES course_questions(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS course_notebooks (
+    id TEXT PRIMARY KEY,
+    course_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    description TEXT,
+    icon TEXT NOT NULL DEFAULT 'notebook',
+    color TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (course_id) REFERENCES courses(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS course_pages (
+    id TEXT PRIMARY KEY,
+    course_notebook_id TEXT NOT NULL,
+    title TEXT NOT NULL,
+    content TEXT NOT NULL DEFAULT '',
+    position INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (course_notebook_id) REFERENCES course_notebooks(id) ON DELETE CASCADE
 );
 
 -- ============================================
@@ -352,6 +447,15 @@ CREATE INDEX IF NOT EXISTS idx_lesson_items_position ON lesson_items(lesson_id, 
 CREATE INDEX IF NOT EXISTS idx_lesson_progress_user_id ON lesson_progress(user_id);
 CREATE INDEX IF NOT EXISTS idx_lesson_progress_lesson_id ON lesson_progress(lesson_id);
 CREATE INDEX IF NOT EXISTS idx_lesson_progress_course_id ON lesson_progress(course_id);
+
+-- Course-owned content indexes
+CREATE INDEX IF NOT EXISTS idx_course_decks_course_id ON course_decks(course_id);
+CREATE INDEX IF NOT EXISTS idx_course_cards_deck_id ON course_cards(course_deck_id);
+CREATE INDEX IF NOT EXISTS idx_course_quizzes_course_id ON course_quizzes(course_id);
+CREATE INDEX IF NOT EXISTS idx_course_questions_quiz_id ON course_questions(course_quiz_id);
+CREATE INDEX IF NOT EXISTS idx_course_choices_question_id ON course_choices(course_question_id);
+CREATE INDEX IF NOT EXISTS idx_course_notebooks_course_id ON course_notebooks(course_id);
+CREATE INDEX IF NOT EXISTS idx_course_pages_notebook_id ON course_pages(course_notebook_id);
 
 -- Favorites indexes
 CREATE INDEX IF NOT EXISTS idx_deck_favorites_user_id ON deck_favorites(user_id);
