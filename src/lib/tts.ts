@@ -81,6 +81,24 @@ export async function ttsWarmup(lang: string = "en"): Promise<void> {
 }
 
 /**
+ * Preload the given language models sequentially in the background, so the
+ * first Listen in each is instant instead of stalling to load the model.
+ * Best-effort: no-ops when the engine isn't installed; skips failures.
+ * The daemon caches each model, so already-warm languages return immediately.
+ */
+export async function warmUsedLanguages(langs: string[]): Promise<void> {
+  if (langs.length === 0) return;
+  if (!(await isEngineAvailable())) return;
+  for (const lang of langs) {
+    try {
+      await ttsWarmup(lang);
+    } catch {
+      /* best-effort — a missing model/download failure shouldn't stop the rest */
+    }
+  }
+}
+
+/**
  * Pre-generate (and cache) audio without playing it, so a subsequent speak() of
  * the same text is instant. Best-effort — silently ignores errors and no-ops
  * when the engine isn't installed.

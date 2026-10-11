@@ -1,6 +1,7 @@
 import { lazy, Suspense, useState, useEffect } from "react";
 import { Routes, Route, Navigate, useNavigate } from "react-router-dom";
-import { ttsWarmup } from "./lib/tts";
+import { ttsWarmup, warmUsedLanguages } from "./lib/tts";
+import { getUsedTtsLangs } from "./lib/db";
 import { isTauri } from "./lib/auth";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import { ToastProvider } from "./context/ToastContext";
@@ -199,13 +200,21 @@ function AppRoutes() {
 }
 
 function App() {
-  // Warm up the TTS engine in the background at launch (start the daemon +
-  // preload the English model) so study/autoplay is responsive. Best-effort;
-  // no-op if the engine isn't installed.
+  // Warm up TTS in the background at launch: start the daemon + preload English
+  // first (the common case), then preload the other languages the user's cards
+  // actually use so the first Listen in each is instant instead of stalling to
+  // load the model one-by-one. Best-effort; no-op if the engine isn't installed.
   useEffect(() => {
-    if (isTauri()) {
-      ttsWarmup("en").catch(() => {});
-    }
+    if (!isTauri()) return;
+    (async () => {
+      try {
+        await ttsWarmup("en");
+        const langs = (await getUsedTtsLangs()).filter((l) => l && l !== "en");
+        await warmUsedLanguages(langs);
+      } catch {
+        /* best-effort */
+      }
+    })();
   }, []);
 
   return (

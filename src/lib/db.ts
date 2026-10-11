@@ -99,6 +99,11 @@ export async function getAllDecks(): Promise<Deck[]> {
   return invoke<Deck[]>("get_all_decks");
 }
 
+// Distinct spoken languages used across the user's cards — for background TTS warm-up.
+export async function getUsedTtsLangs(): Promise<string[]> {
+  return invoke<string[]>("get_used_tts_langs");
+}
+
 export async function getDeck(id: string): Promise<Deck | null> {
   return invoke<Deck | null>("get_deck", { id });
 }

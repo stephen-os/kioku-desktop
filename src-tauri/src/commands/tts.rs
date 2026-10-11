@@ -9,7 +9,9 @@ use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 use std::sync::Mutex;
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Emitter, Manager, State};
+
+use crate::db::{self, DbState};
 
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
@@ -465,6 +467,15 @@ pub async fn tts_warmup(app: AppHandle, lang: Option<String>) -> Result<(), Stri
     let lang = lang.unwrap_or_else(|| "en".to_string());
     let resp = daemon_exchange(daemon, &json!({ "cmd": "warm", "lang": lang }))?;
     daemon_ok(resp)
+}
+
+/// The distinct spoken languages the active user's cards actually use, so the
+/// front end can background-warm just those voices (not all six).
+#[tauri::command]
+pub fn get_used_tts_langs(state: State<DbState>) -> Result<Vec<String>, String> {
+    let conn = state.0.lock().map_err(|e| format!("Lock error: {}", e))?;
+    let user = db::get_active_user(&conn)?.ok_or_else(|| "No active user".to_string())?;
+    db::get_used_tts_langs(&conn, &user.id)
 }
 
 /// Synthesize `text` in `lang` to a cached WAV and return its absolute path.

@@ -151,6 +151,7 @@ pub fn run() {
             commands::tts::get_tts_storage_size,
             commands::tts::synthesize_tts,
             commands::tts::tts_warmup,
+            commands::tts::get_used_tts_langs,
             // Notebook commands
             commands::notebooks::get_all_notebooks,
             commands::notebooks::get_notebook,

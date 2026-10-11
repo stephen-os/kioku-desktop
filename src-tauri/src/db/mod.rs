@@ -19,8 +19,8 @@ pub use state::{init_database, DbState};
 pub use decks::{
     add_tag_to_card, create_card, create_deck, create_tag, delete_card, delete_deck, delete_tag,
     get_all_decks, get_card, get_cards_for_deck, get_deck, get_tag_by_name,
-    get_tags_for_card, get_tags_for_deck, remove_tag_from_card, toggle_deck_favorite,
-    update_card, update_deck,
+    get_tags_for_card, get_tags_for_deck, get_used_tts_langs, remove_tag_from_card,
+    toggle_deck_favorite, update_card, update_deck,
 };
 
 // Course operations
