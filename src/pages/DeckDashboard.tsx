@@ -13,8 +13,9 @@ import {
   CardGrid,
   DeckCard,
   CourseItemsSection,
+  ViewToggle,
 } from "@/components";
-import { useSearchFilter } from "@/hooks";
+import { useSearchFilter, useViewMode } from "@/hooks";
 import { useToast } from "@/context/ToastContext";
 
 const DeckIcon = () => (
@@ -33,6 +34,7 @@ export function DeckDashboard() {
   const [loading, setLoading] = useState(true);
   const [importing, setImporting] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [view, setView] = useViewMode("decks");
   const toast = useToast();
 
   const {
@@ -159,6 +161,7 @@ export function DeckDashboard() {
                   onClick={toggleSearch}
                 />
                 <h2 className="text-2xl font-bold text-[#fcfcfa] font-mono">Decks</h2>
+                <ViewToggle value={view} onChange={setView} />
               </div>
               <div className="grid grid-cols-2 gap-2 w-full sm:w-auto sm:min-w-[300px]">
                 <button
@@ -189,7 +192,7 @@ export function DeckDashboard() {
               descriptionPlaceholder="Filter by description..."
             />
 
-            <CourseItemsSection itemType="deck" onAdopted={loadData} />
+            <CourseItemsSection itemType="deck" onAdopted={loadData} view={view} />
 
             {filteredDecks.length === 0 ? (
               <EmptyState
@@ -213,7 +216,7 @@ export function DeckDashboard() {
                 {favoriteDecks.length > 0 && (
                   <div className="mb-6">
                     <SectionHeader title="Favorites" showStar />
-                    <CardGrid>
+                    <CardGrid view={view}>
                       {favoriteDecks.map((deck) => (
                         <DeckCard
                           key={deck.id}
@@ -221,6 +224,7 @@ export function DeckDashboard() {
                           onDelete={() => handleDelete(deck.id)}
                           onToggleFavorite={() => handleToggleFavorite(deck.id)}
                           isDeleting={deletingId === deck.id}
+                          view={view}
                         />
                       ))}
                     </CardGrid>
@@ -230,7 +234,7 @@ export function DeckDashboard() {
                 {regularDecks.length > 0 && (
                   <div>
                     {favoriteDecks.length > 0 && <SectionHeader title="All Decks" />}
-                    <CardGrid>
+                    <CardGrid view={view}>
                       {regularDecks.map((deck) => (
                         <DeckCard
                           key={deck.id}
@@ -238,6 +242,7 @@ export function DeckDashboard() {
                           onDelete={() => handleDelete(deck.id)}
                           onToggleFavorite={() => handleToggleFavorite(deck.id)}
                           isDeleting={deletingId === deck.id}
+                          view={view}
                         />
                       ))}
                     </CardGrid>

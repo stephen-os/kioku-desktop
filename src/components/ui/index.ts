@@ -9,3 +9,4 @@ export { SearchBar, SearchToggleButton } from "./SearchBar";
 export { BackButton } from "./BackButton";
 export { Toggle } from "./Toggle";
 export { SaveStatus } from "./SaveStatus";
+export { ViewToggle } from "./ViewToggle";

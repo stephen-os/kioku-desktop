@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { Link } from "react-router-dom";
 import type { CourseItemOverview, LessonItemType } from "@/types";
+import type { ViewMode } from "@/hooks";
 import {
   getCourseItemsOverview,
   adoptCourseDeck,
@@ -47,6 +48,8 @@ interface CourseItemsSectionProps {
   itemType: LessonItemType;
   /** Called after an item is adopted into the library, to refresh it. */
   onAdopted?: () => void;
+  /** Match the page's grid/list view so the section doesn't clash. */
+  view?: ViewMode;
 }
 
 /**
@@ -54,7 +57,7 @@ interface CourseItemsSectionProps {
  * library page. Items launch read-only in course context; locked content never
  * appears here. A "Due only" toggle narrows to items not yet completed.
  */
-export function CourseItemsSection({ itemType, onAdopted }: CourseItemsSectionProps) {
+export function CourseItemsSection({ itemType, onAdopted, view = "grid" }: CourseItemsSectionProps) {
   const [items, setItems] = useState<CourseItemOverview[]>([]);
   const [dueOnly, setDueOnly] = useState(false);
   const [adoptingId, setAdoptingId] = useState<string | null>(null);
@@ -123,53 +126,100 @@ export function CourseItemsSection({ itemType, onAdopted }: CourseItemsSectionPr
         )}
       </div>
 
-      <div className="rounded-lg border border-[#403e41] divide-y divide-[#403e41] overflow-hidden">
-        {visible.map((item) => {
-          const req = requirementLabel(item);
-          return (
-            <div
-              key={item.lessonItemId}
-              className="flex items-center gap-3 px-4 py-3 bg-[#2d2a2e] hover:bg-[#333034] transition-colors"
-            >
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2">
-                  <span className="text-sm font-medium text-[#fcfcfa] truncate">
-                    {item.itemName}
-                  </span>
-                  {!item.completed && (
-                    <span className="text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-[#ffd866]/20 text-[#ffd866] font-semibold shrink-0">
-                      Due
-                    </span>
-                  )}
-                  {item.completed && (
-                    <span className="text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-[#a9dc76]/20 text-[#a9dc76] font-semibold shrink-0">
-                      Done
-                    </span>
-                  )}
+      {view === "list" ? (
+        <div className="rounded-lg border border-[#403e41] divide-y divide-[#403e41] overflow-hidden">
+          {visible.map((item) => {
+            const req = requirementLabel(item);
+            return (
+              <div
+                key={item.lessonItemId}
+                className="flex items-center gap-3 px-4 py-3 bg-[#2d2a2e] hover:bg-[#333034] transition-colors"
+              >
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium text-[#fcfcfa] truncate">{item.itemName}</span>
+                    <StatusBadge completed={item.completed} />
+                  </div>
+                  <div className="text-xs text-[#939293] truncate">
+                    {item.courseName}
+                    {req && <span className="text-[#fc9867]"> · {req}</span>}
+                  </div>
                 </div>
-                <div className="text-xs text-[#939293] truncate">
+                <AdoptButton item={item} adopting={adoptingId === item.lessonItemId} onAdopt={handleAdopt} />
+                <Link
+                  to={launchUrl(item)}
+                  className="text-xs px-3 py-1.5 rounded-md font-medium text-[#2d2a2e] bg-[#78dce8] hover:bg-[#78dce8]/90 transition-colors shrink-0"
+                >
+                  {ACTION_LABEL[item.itemType]}
+                </Link>
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {visible.map((item) => {
+            const req = requirementLabel(item);
+            return (
+              <div
+                key={item.lessonItemId}
+                className="flex flex-col bg-[#2d2a2e] rounded-xl border border-[#403e41] px-4 py-3 hover:border-[#5b595c] transition-colors"
+              >
+                <div className="flex items-center gap-2 mb-1">
+                  <StatusBadge completed={item.completed} />
+                </div>
+                <span className="text-sm font-medium text-[#fcfcfa] truncate">{item.itemName}</span>
+                <div className="text-xs text-[#939293] truncate mb-3">
                   {item.courseName}
                   {req && <span className="text-[#fc9867]"> · {req}</span>}
                 </div>
+                <div className="mt-auto flex items-center gap-2">
+                  <Link
+                    to={launchUrl(item)}
+                    className="flex-1 text-center text-xs px-3 py-1.5 rounded-md font-medium text-[#2d2a2e] bg-[#78dce8] hover:bg-[#78dce8]/90 transition-colors"
+                  >
+                    {ACTION_LABEL[item.itemType]}
+                  </Link>
+                  <AdoptButton item={item} adopting={adoptingId === item.lessonItemId} onAdopt={handleAdopt} />
+                </div>
               </div>
-              <button
-                onClick={() => handleAdopt(item)}
-                disabled={adoptingId === item.lessonItemId}
-                className="text-xs px-2.5 py-1.5 rounded-md text-[#c1c0c0] hover:text-[#fcfcfa] hover:bg-[#5b595c] transition-colors disabled:opacity-50 shrink-0"
-                title="Save a personal, editable copy to your library"
-              >
-                {adoptingId === item.lessonItemId ? "Saving…" : "Save copy"}
-              </button>
-              <Link
-                to={launchUrl(item)}
-                className="text-xs px-3 py-1.5 rounded-md font-medium text-[#2d2a2e] bg-[#78dce8] hover:bg-[#78dce8]/90 transition-colors shrink-0"
-              >
-                {ACTION_LABEL[item.itemType]}
-              </Link>
-            </div>
-          );
-        })}
-      </div>
+            );
+          })}
+        </div>
+      )}
     </div>
+  );
+}
+
+function StatusBadge({ completed }: { completed: boolean }) {
+  return completed ? (
+    <span className="text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-[#a9dc76]/20 text-[#a9dc76] font-semibold shrink-0">
+      Done
+    </span>
+  ) : (
+    <span className="text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-[#ffd866]/20 text-[#ffd866] font-semibold shrink-0">
+      Due
+    </span>
+  );
+}
+
+function AdoptButton({
+  item,
+  adopting,
+  onAdopt,
+}: {
+  item: CourseItemOverview;
+  adopting: boolean;
+  onAdopt: (item: CourseItemOverview) => void;
+}) {
+  return (
+    <button
+      onClick={() => onAdopt(item)}
+      disabled={adopting}
+      className="text-xs px-2.5 py-1.5 rounded-md text-[#c1c0c0] hover:text-[#fcfcfa] hover:bg-[#5b595c] transition-colors disabled:opacity-50 shrink-0"
+      title="Save a personal, editable copy to your library"
+    >
+      {adopting ? "Saving…" : "Save copy"}
+    </button>
   );
 }

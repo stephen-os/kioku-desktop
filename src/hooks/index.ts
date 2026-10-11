@@ -5,3 +5,4 @@ export * from "./useAutoSave";
 export * from "./useUnsavedChanges";
 export * from "./useSidebarState";
 export * from "./useMarkdownOutline";
+export * from "./useViewMode";

@@ -9,9 +9,10 @@ import {
   SectionHeader,
   CardGrid,
   CourseItemsSection,
+  ViewToggle,
 } from "@/components";
 import { NotebookCard } from "@/components/cards/NotebookCard";
-import { useSearchFilter } from "@/hooks";
+import { useSearchFilter, useViewMode } from "@/hooks";
 import { useToast } from "@/context/ToastContext";
 
 const NotebookIcon = () => (
@@ -30,6 +31,7 @@ export function NotesDashboard() {
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [view, setView] = useViewMode("notebooks");
   const toast = useToast();
 
   const {
@@ -123,6 +125,7 @@ export function NotesDashboard() {
                 onClick={toggleSearch}
               />
               <h2 className="text-2xl font-bold text-[#fcfcfa] font-mono">Notes</h2>
+              <ViewToggle value={view} onChange={setView} />
             </div>
             <div className="w-full sm:w-auto sm:min-w-[150px]">
               <button
@@ -147,7 +150,7 @@ export function NotesDashboard() {
             descriptionPlaceholder="Filter by description..."
           />
 
-          <CourseItemsSection itemType="note" onAdopted={loadData} />
+          <CourseItemsSection itemType="note" onAdopted={loadData} view={view} />
 
           {filteredNotebooks.length === 0 ? (
             <EmptyState
@@ -171,7 +174,7 @@ export function NotesDashboard() {
               {favoriteNotebooks.length > 0 && (
                 <div className="mb-6">
                   <SectionHeader title="Favorites" showStar />
-                  <CardGrid>
+                  <CardGrid view={view}>
                     {favoriteNotebooks.map((notebook) => (
                       <NotebookCard
                         key={notebook.id}
@@ -179,6 +182,7 @@ export function NotesDashboard() {
                         onDelete={() => handleDelete(notebook.id)}
                         onToggleFavorite={() => handleToggleFavorite(notebook.id)}
                         isDeleting={deletingId === notebook.id}
+                        view={view}
                       />
                     ))}
                   </CardGrid>
@@ -188,7 +192,7 @@ export function NotesDashboard() {
               {regularNotebooks.length > 0 && (
                 <div>
                   {favoriteNotebooks.length > 0 && <SectionHeader title="All Notebooks" />}
-                  <CardGrid>
+                  <CardGrid view={view}>
                     {regularNotebooks.map((notebook) => (
                       <NotebookCard
                         key={notebook.id}
@@ -196,6 +200,7 @@ export function NotesDashboard() {
                         onDelete={() => handleDelete(notebook.id)}
                         onToggleFavorite={() => handleToggleFavorite(notebook.id)}
                         isDeleting={deletingId === notebook.id}
+                        view={view}
                       />
                     ))}
                   </CardGrid>

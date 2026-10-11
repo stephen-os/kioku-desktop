@@ -13,8 +13,9 @@ import {
   CardGrid,
   QuizCard,
   CourseItemsSection,
+  ViewToggle,
 } from "@/components";
-import { useSearchFilter } from "@/hooks";
+import { useSearchFilter, useViewMode } from "@/hooks";
 import { useToast } from "@/context/ToastContext";
 
 const QuizIcon = () => (
@@ -35,6 +36,7 @@ export function QuizDashboard() {
   const [loading, setLoading] = useState(true);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
+  const [view, setView] = useViewMode("quizzes");
 
   const {
     filters,
@@ -174,6 +176,7 @@ export function QuizDashboard() {
                   onClick={toggleSearch}
                 />
                 <h2 className="text-2xl font-bold text-[#fcfcfa] font-mono">Quizzes</h2>
+                <ViewToggle value={view} onChange={setView} />
               </div>
               <div className="grid grid-cols-2 gap-2 w-full sm:w-auto sm:min-w-[300px]">
                 <button
@@ -204,7 +207,7 @@ export function QuizDashboard() {
               descriptionPlaceholder="Filter by description..."
             />
 
-            <CourseItemsSection itemType="quiz" onAdopted={loadData} />
+            <CourseItemsSection itemType="quiz" onAdopted={loadData} view={view} />
 
             {filteredQuizzes.length === 0 ? (
               <EmptyState
@@ -228,7 +231,7 @@ export function QuizDashboard() {
                 {favoriteQuizzes.length > 0 && (
                   <div className="mb-6">
                     <SectionHeader title="Favorites" showStar />
-                    <CardGrid>
+                    <CardGrid view={view}>
                       {favoriteQuizzes.map((quiz) => (
                         <QuizCard
                           key={quiz.id}
@@ -237,6 +240,7 @@ export function QuizDashboard() {
                           onDelete={() => handleDelete(quiz.id)}
                           onToggleFavorite={() => handleToggleFavorite(quiz.id)}
                           isDeleting={deletingId === quiz.id}
+                          view={view}
                         />
                       ))}
                     </CardGrid>
@@ -246,7 +250,7 @@ export function QuizDashboard() {
                 {regularQuizzes.length > 0 && (
                   <div>
                     {favoriteQuizzes.length > 0 && <SectionHeader title="All Quizzes" />}
-                    <CardGrid>
+                    <CardGrid view={view}>
                       {regularQuizzes.map((quiz) => (
                         <QuizCard
                           key={quiz.id}
@@ -255,6 +259,7 @@ export function QuizDashboard() {
                           onDelete={() => handleDelete(quiz.id)}
                           onToggleFavorite={() => handleToggleFavorite(quiz.id)}
                           isDeleting={deletingId === quiz.id}
+                          view={view}
                         />
                       ))}
                     </CardGrid>

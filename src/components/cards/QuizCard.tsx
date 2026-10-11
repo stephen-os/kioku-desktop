@@ -1,5 +1,6 @@
 import { Link } from "react-router-dom";
 import type { Quiz, QuizStats } from "@/types";
+import type { ViewMode } from "@/hooks";
 import { FavoriteButton } from "../ui/FavoriteButton";
 import { DeleteConfirmButton } from "../ui/DeleteConfirmButton";
 
@@ -9,14 +10,44 @@ interface QuizCardProps {
   onDelete: () => void;
   onToggleFavorite: () => void;
   isDeleting?: boolean;
+  view?: ViewMode;
 }
 
-export function QuizCard({ quiz, stats, onDelete, onToggleFavorite, isDeleting }: QuizCardProps) {
+export function QuizCard({ quiz, stats, onDelete, onToggleFavorite, isDeleting, view = "grid" }: QuizCardProps) {
   const handleFavoriteClick = (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
     onToggleFavorite();
   };
+
+  if (view === "list") {
+    return (
+      <div className="flex items-center gap-3 bg-[#403e41] rounded-lg border border-[#5b595c] hover:border-[#939293] transition-colors px-4 py-2.5">
+        <Link to={`/quizzes/${quiz.id}`} className="flex-1 min-w-0 flex items-center gap-3">
+          <span className="text-xs px-2 py-0.5 rounded bg-[#78dce8]/20 text-[#78dce8] shrink-0">
+            {quiz.questionCount ?? quiz.questions?.length ?? 0}
+          </span>
+          <span className="text-sm font-medium text-[#fcfcfa] truncate">{quiz.name}</span>
+          {stats && stats.totalAttempts > 0 && (
+            <span className="text-xs text-[#a9dc76] shrink-0 hidden sm:block">Best {stats.bestScore}%</span>
+          )}
+          {quiz.description && (
+            <span className="text-xs text-[#939293] truncate hidden md:block">{quiz.description}</span>
+          )}
+        </Link>
+        <div className="flex items-center gap-1 shrink-0">
+          <FavoriteButton isFavorite={quiz.isFavorite ?? false} onClick={handleFavoriteClick} size="sm" />
+          <Link to={`/quizzes/${quiz.id}/take`} className="px-2 py-1 text-xs rounded bg-[#a9dc76]/20 text-[#a9dc76] hover:bg-[#a9dc76]/30 transition-colors font-medium">
+            Take
+          </Link>
+          <Link to={`/quizzes/${quiz.id}/edit`} className="px-2 py-1 text-xs rounded bg-[#ffd866]/20 text-[#ffd866] hover:bg-[#ffd866]/30 transition-colors font-medium">
+            Edit
+          </Link>
+          <DeleteConfirmButton onConfirm={onDelete} isDeleting={isDeleting} />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="block bg-[#403e41] overflow-hidden rounded-xl border border-[#5b595c] hover:border-[#939293] transition-colors">
