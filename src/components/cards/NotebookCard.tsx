@@ -23,7 +23,7 @@ export function NotebookCard({ notebook, onDelete, onToggleFavorite, isDeleting,
     return (
       <div className="flex items-center gap-3 bg-[#403e41] rounded-lg border border-[#5b595c] hover:border-[#939293] transition-colors px-4 py-2.5">
         <Link to={`/notes/${notebook.id}`} className="flex-1 min-w-0 flex items-center gap-3">
-          <span className="text-xs px-2 py-0.5 rounded bg-[#fc9867]/20 text-[#fc9867] shrink-0">
+          <span className="text-xs px-2 py-0.5 rounded bg-[#a9dc76]/20 text-[#a9dc76] shrink-0">
             {notebook.pageCount ?? 0}
           </span>
           <span className="text-sm font-medium text-[#fcfcfa] truncate">{notebook.name}</span>
@@ -33,7 +33,7 @@ export function NotebookCard({ notebook, onDelete, onToggleFavorite, isDeleting,
         </Link>
         <div className="flex items-center gap-1 shrink-0">
           <FavoriteButton isFavorite={notebook.isFavorite ?? false} onClick={handleFavoriteClick} size="sm" />
-          <Link to={`/notes/${notebook.id}`} className="px-2 py-1 text-xs rounded bg-[#fc9867]/20 text-[#fc9867] hover:bg-[#fc9867]/30 transition-colors font-medium">
+          <Link to={`/notes/${notebook.id}`} className="px-2 py-1 text-xs rounded bg-[#a9dc76]/20 text-[#a9dc76] hover:bg-[#a9dc76]/30 transition-colors font-medium">
             Open
           </Link>
           <DeleteConfirmButton onConfirm={onDelete} isDeleting={isDeleting} />
@@ -47,7 +47,7 @@ export function NotebookCard({ notebook, onDelete, onToggleFavorite, isDeleting,
       <Link to={`/notes/${notebook.id}`} className="block px-5 py-4">
         <div className="flex items-start justify-between mb-2">
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-xs px-2 py-0.5 rounded bg-[#fc9867]/20 text-[#fc9867]">
+            <span className="text-xs px-2 py-0.5 rounded bg-[#a9dc76]/20 text-[#a9dc76]">
               {notebook.pageCount ?? 0} pages
             </span>
           </div>
@@ -72,7 +72,7 @@ export function NotebookCard({ notebook, onDelete, onToggleFavorite, isDeleting,
       <div className="px-5 pb-4 flex gap-2">
         <Link
           to={`/notes/${notebook.id}`}
-          className="flex-1 text-center px-3 py-2 bg-[#fc9867]/20 text-[#fc9867] text-sm rounded-lg hover:bg-[#fc9867]/30 transition-colors font-medium"
+          className="flex-1 text-center px-3 py-2 bg-[#a9dc76]/20 text-[#a9dc76] text-sm rounded-lg hover:bg-[#a9dc76]/30 transition-colors font-medium"
         >
           Open
         </Link>

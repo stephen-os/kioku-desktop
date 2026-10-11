@@ -127,56 +127,58 @@ export function CourseItemsSection({ itemType, onAdopted, view = "grid" }: Cours
       </div>
 
       {view === "list" ? (
-        <div className="rounded-lg border border-[#403e41] divide-y divide-[#403e41] overflow-hidden">
+        <div className="flex flex-col gap-2">
           {visible.map((item) => {
             const req = requirementLabel(item);
             return (
               <div
                 key={item.lessonItemId}
-                className="flex items-center gap-3 px-4 py-3 bg-[#2d2a2e] hover:bg-[#333034] transition-colors"
+                className="flex items-center gap-3 bg-[#403e41] rounded-lg border border-[#5b595c] hover:border-[#939293] transition-colors px-4 py-2.5"
               >
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-medium text-[#fcfcfa] truncate">{item.itemName}</span>
-                    <StatusBadge completed={item.completed} />
-                  </div>
-                  <div className="text-xs text-[#939293] truncate">
+                <div className="min-w-0 flex-1 flex items-center gap-2">
+                  <StatusBadge completed={item.completed} />
+                  <span className="text-sm font-medium text-[#fcfcfa] truncate">{item.itemName}</span>
+                  <span className="text-xs text-[#939293] truncate hidden md:block">
                     {item.courseName}
                     {req && <span className="text-[#fc9867]"> · {req}</span>}
-                  </div>
+                  </span>
                 </div>
-                <AdoptButton item={item} adopting={adoptingId === item.lessonItemId} onAdopt={handleAdopt} />
-                <Link
-                  to={launchUrl(item)}
-                  className="text-xs px-3 py-1.5 rounded-md font-medium text-[#2d2a2e] bg-[#78dce8] hover:bg-[#78dce8]/90 transition-colors shrink-0"
-                >
-                  {ACTION_LABEL[item.itemType]}
-                </Link>
+                <div className="flex items-center gap-1 shrink-0">
+                  <AdoptButton item={item} adopting={adoptingId === item.lessonItemId} onAdopt={handleAdopt} />
+                  <Link
+                    to={launchUrl(item)}
+                    className="px-2 py-1 text-xs rounded bg-[#78dce8]/20 text-[#78dce8] hover:bg-[#78dce8]/30 transition-colors font-medium"
+                  >
+                    {ACTION_LABEL[item.itemType]}
+                  </Link>
+                </div>
               </div>
             );
           })}
         </div>
       ) : (
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {visible.map((item) => {
             const req = requirementLabel(item);
             return (
               <div
                 key={item.lessonItemId}
-                className="flex flex-col bg-[#2d2a2e] rounded-xl border border-[#403e41] px-4 py-3 hover:border-[#5b595c] transition-colors"
+                className="block bg-[#403e41] overflow-hidden rounded-xl border border-[#5b595c] hover:border-[#939293] transition-colors"
               >
-                <div className="flex items-center gap-2 mb-1">
-                  <StatusBadge completed={item.completed} />
+                <div className="px-5 py-4">
+                  <div className="flex items-start justify-between mb-2">
+                    <StatusBadge completed={item.completed} />
+                    <span className="text-xs text-[#939293] truncate max-w-[55%] text-right">{item.courseName}</span>
+                  </div>
+                  <h3 className="text-base font-medium text-[#fcfcfa] truncate">{item.itemName}</h3>
+                  <p className="mt-1 text-sm text-[#939293] line-clamp-2">
+                    {req ? <span className="text-[#fc9867]">{req}</span> : "From your courses"}
+                  </p>
                 </div>
-                <span className="text-sm font-medium text-[#fcfcfa] truncate">{item.itemName}</span>
-                <div className="text-xs text-[#939293] truncate mb-3">
-                  {item.courseName}
-                  {req && <span className="text-[#fc9867]"> · {req}</span>}
-                </div>
-                <div className="mt-auto flex items-center gap-2">
+                <div className="px-5 pb-4 flex gap-2">
                   <Link
                     to={launchUrl(item)}
-                    className="flex-1 text-center text-xs px-3 py-1.5 rounded-md font-medium text-[#2d2a2e] bg-[#78dce8] hover:bg-[#78dce8]/90 transition-colors"
+                    className="flex-1 text-center px-3 py-2 bg-[#78dce8]/20 text-[#78dce8] text-sm rounded-lg hover:bg-[#78dce8]/30 transition-colors font-medium"
                   >
                     {ACTION_LABEL[item.itemType]}
                   </Link>

@@ -648,8 +648,10 @@ pub fn get_backlinks(
     let page = get_page(conn, page_id)?
         .ok_or_else(|| format!("Page not found: {}", page_id))?;
 
-    // Search for [[Page Title]] or [[Page Title|...]] in content
-    // We need to match both [[Title]] and [[Title|Display Text]]
+    // Match links to this page in page content, which may appear as:
+    //   * raw markdown [[Title]] or [[Title|Display]] (unopened/legacy content), or
+    //   * a BlockNote wikilink inline node serialized as "target":"Title"
+    //     (once the linking page has been opened and converted).
     let mut stmt = conn
         .prepare(
             "SELECT p.id, p.notebook_id, p.title, n.name as notebook_name, p.updated_at
@@ -657,7 +659,7 @@ pub fn get_backlinks(
              INNER JOIN notebooks n ON p.notebook_id = n.id
              WHERE n.user_id = ?1
                AND p.id != ?2
-               AND (p.content LIKE ?3 OR p.content LIKE ?4)
+               AND (p.content LIKE ?3 OR p.content LIKE ?4 OR p.content LIKE ?5)
              ORDER BY p.updated_at DESC",
         )
         .map_err(|e| format!("Failed to prepare backlinks query: {}", e))?;
@@ -666,9 +668,11 @@ pub fn get_backlinks(
     let pattern1 = format!("%[[{}]]%", page.title);
     // Pattern for [[Title|...]] (with display text)
     let pattern2 = format!("%[[{}|%", page.title);
+    // Pattern for the serialized wikilink inline node's target prop
+    let pattern3 = format!("%\"target\":\"{}\"%", page.title);
 
     let results = stmt
-        .query_map(params![user_id, page_id, pattern1, pattern2], |row| {
+        .query_map(params![user_id, page_id, pattern1, pattern2, pattern3], |row| {
             Ok(PageSearchResult {
                 id: row.get(0)?,
                 notebook_id: row.get(1)?,
