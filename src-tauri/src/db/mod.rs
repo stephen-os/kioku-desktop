@@ -35,8 +35,8 @@ pub use course_content::{
     copy_page_to_course, copy_quiz_to_course, create_course_card_from_request, create_course_deck,
     create_course_notebook, create_course_page, create_course_question_from_request,
     create_course_quiz, delete_course_card, delete_course_deck, delete_course_notebook,
-    delete_course_question, delete_course_quiz, get_course_card, get_course_cards, get_course_deck,
-    get_course_page, get_course_question, get_course_quiz, grade_course_quiz,
+    delete_course_question, delete_course_quiz, get_course_cards, get_course_deck,
+    get_course_page, get_course_quiz, grade_course_quiz,
     reorder_course_questions, update_course_card, update_course_choices_for_question,
     update_course_deck, update_course_page, update_course_question, update_course_quiz,
 };
