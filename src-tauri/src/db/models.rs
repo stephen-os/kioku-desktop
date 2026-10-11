@@ -286,12 +286,14 @@ pub struct Lesson {
 pub enum LessonItemType {
     Deck,
     Quiz,
+    Note,
 }
 
 impl LessonItemType {
     pub fn from_str(s: &str) -> Self {
         match s {
             "quiz" => LessonItemType::Quiz,
+            "note" => LessonItemType::Note,
             _ => LessonItemType::Deck,
         }
     }
@@ -304,12 +306,14 @@ pub enum RequirementType {
     Review,     // For decks: just open/view the deck
     Complete,   // For quizzes: just finish the quiz
     MinScore,   // For quizzes: score at least X%
+    Read,       // For notes: open/read the note
 }
 
 impl RequirementType {
     pub fn from_str(s: &str) -> Option<Self> {
         match s {
             "study" => Some(RequirementType::Study),
+            "read" => Some(RequirementType::Read),
             "review" => Some(RequirementType::Review),
             "complete" => Some(RequirementType::Complete),
             "min_score" => Some(RequirementType::MinScore),

@@ -875,6 +875,9 @@ pub fn export_course_to_json(state: State<DbState>, course_id: String) -> Result
                 match item.item_type {
                     db::LessonItemType::Deck => { deck_ids.insert(item_id.clone()); }
                     db::LessonItemType::Quiz => { quiz_ids.insert(item_id.clone()); }
+                    // TODO: course JSON export/import predates course-owned content
+                    // and still reads the personal library; notes aren't handled.
+                    db::LessonItemType::Note => {}
                 }
             }
         }
@@ -960,6 +963,7 @@ pub fn export_course_to_json(state: State<DbState>, course_id: String) -> Result
                         item_type: match item.item_type {
                             db::LessonItemType::Deck => "deck".to_string(),
                             db::LessonItemType::Quiz => "quiz".to_string(),
+                            db::LessonItemType::Note => "note".to_string(),
                         },
                         name: item.item_name,
                         requirement_type: item.requirement_type.map(|rt| match rt {
@@ -967,6 +971,7 @@ pub fn export_course_to_json(state: State<DbState>, course_id: String) -> Result
                             db::RequirementType::Review => "review".to_string(),
                             db::RequirementType::Complete => "complete".to_string(),
                             db::RequirementType::MinScore => "min_score".to_string(),
+                            db::RequirementType::Read => "read".to_string(),
                         }),
                         requirement_value: item.requirement_value,
                     })

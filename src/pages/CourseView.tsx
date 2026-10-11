@@ -18,7 +18,9 @@ function courseLaunchUrl(courseId: string, lessonId: string, item: LessonItem): 
   const base =
     item.itemType === "deck"
       ? `/decks/${item.itemId}/study`
-      : `/quizzes/${item.itemId}/take`;
+      : item.itemType === "quiz"
+      ? `/quizzes/${item.itemId}/take`
+      : `/course-note/${item.itemId}`;
   const ctx = new URLSearchParams({ courseId, lessonId, lessonItemId: item.id, source: "course" });
   if (item.requirementType === "min_score" && item.requirementValue != null) {
     ctx.set("minScore", String(item.requirementValue));
@@ -449,9 +451,10 @@ interface LessonItemCardProps {
 function LessonItemCard({ item, index, courseId, lessonId, isLocked, onToggleComplete }: LessonItemCardProps) {
   const isDeck = item.itemType === "deck";
   const isMissing = item.isMissing ?? false;
-  // Study/Take launches in course context (records progress, returns to course).
+  const typeLabel = isMissing ? "Missing" : isDeck ? "Deck" : item.itemType === "quiz" ? "Quiz" : "Note";
+  const actionLabel = isDeck ? "Study" : item.itemType === "quiz" ? "Take" : "Read";
+  // Launches in course context (records progress, returns to course).
   const studyPath = courseLaunchUrl(courseId, lessonId, item);
-  const viewPath = isDeck ? `/decks/${item.itemId}` : `/quizzes/${item.itemId}`;
 
   // Format requirement text
   const getRequirementText = () => {
@@ -465,6 +468,8 @@ function LessonItemCard({ item, index, courseId, lessonId, isLocked, onToggleCom
         return "Complete the quiz";
       case "min_score":
         return `Score at least ${item.requirementValue}%`;
+      case "read":
+        return "Read the note";
       default:
         return null;
     }
@@ -526,7 +531,7 @@ function LessonItemCard({ item, index, courseId, lessonId, isLocked, onToggleCom
                 : "bg-[#ab9df2]/20 text-[#ab9df2]"
             }`}
           >
-            {isMissing ? "Missing" : isDeck ? "Deck" : "Quiz"}
+            {typeLabel}
           </span>
           {item.isCompleted && (
             <span className="text-xs text-[#a9dc76]">Completed</span>
@@ -560,24 +565,16 @@ function LessonItemCard({ item, index, courseId, lessonId, isLocked, onToggleCom
           </span>
         )}
         {!isMissing && !isLocked && (
-          <>
-            <Link
-              to={viewPath}
-              className="px-2 py-1 text-xs text-[#939293] hover:text-[#fcfcfa] hover:bg-[#5b595c] rounded transition-colors"
-            >
-              View
-            </Link>
-            <Link
-              to={studyPath}
-              className={`px-2 py-1 text-xs rounded transition-colors font-medium ${
-                isDeck
-                  ? "bg-[#a9dc76]/20 text-[#a9dc76] hover:bg-[#a9dc76]/30"
-                  : "bg-[#ab9df2]/20 text-[#ab9df2] hover:bg-[#ab9df2]/30"
-              }`}
-            >
-              {isDeck ? "Study" : "Take"}
-            </Link>
-          </>
+          <Link
+            to={studyPath}
+            className={`px-2 py-1 text-xs rounded transition-colors font-medium ${
+              isDeck
+                ? "bg-[#a9dc76]/20 text-[#a9dc76] hover:bg-[#a9dc76]/30"
+                : "bg-[#ab9df2]/20 text-[#ab9df2] hover:bg-[#ab9df2]/30"
+            }`}
+          >
+            {actionLabel}
+          </Link>
         )}
         {isMissing && (
           <Link

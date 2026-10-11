@@ -435,8 +435,8 @@ export interface SubmitQuizRequest {
 // Course Types (Lesson-based)
 // ============================================
 
-export type LessonItemType = "deck" | "quiz";
-export type RequirementType = "study" | "review" | "complete" | "min_score";
+export type LessonItemType = "deck" | "quiz" | "note";
+export type RequirementType = "study" | "review" | "complete" | "min_score" | "read";
 
 export interface Course {
   id: string;

@@ -9,6 +9,7 @@ interface BlockNoteEditorProps {
   initialContent: string; // JSON string of blocks, markdown, or empty
   onChange: (content: string) => void;
   onSave?: () => void;
+  editable?: boolean; // false => read-only (course note reference content)
 }
 
 // Check if content looks like JSON (BlockNote format)
@@ -31,7 +32,7 @@ async function fileToDataUrl(file: File): Promise<string> {
 }
 
 
-export function NotesBlockEditor({ initialContent, onChange, onSave }: BlockNoteEditorProps) {
+export function NotesBlockEditor({ initialContent, onChange, onSave, editable = true }: BlockNoteEditorProps) {
   const onChangeRef = useRef(onChange);
   const onSaveRef = useRef(onSave);
   const [isReady, setIsReady] = useState(false);
@@ -132,6 +133,7 @@ export function NotesBlockEditor({ initialContent, onChange, onSave }: BlockNote
     <div className="blocknote-editor-wrapper h-full overflow-auto">
       <BlockNoteView
         editor={editor}
+        editable={editable}
         theme="dark"
         data-theming-css-variables-demo
       />

@@ -38,6 +38,7 @@ const QuizResults = lazy(() => import("./pages/QuizResults").then(m => ({ defaul
 const CourseDashboard = lazy(() => import("./pages/CourseDashboard").then(m => ({ default: m.CourseDashboard })));
 const CourseView = lazy(() => import("./pages/CourseView").then(m => ({ default: m.CourseView })));
 const CourseEditor = lazy(() => import("./pages/CourseEditor").then(m => ({ default: m.CourseEditor })));
+const CourseNoteView = lazy(() => import("./pages/CourseNoteView").then(m => ({ default: m.CourseNoteView })));
 
 // Notes pages (lazy-loaded)
 const NotesDashboard = lazy(() => import("./pages/NotesDashboard").then(m => ({ default: m.NotesDashboard })));
@@ -179,6 +180,7 @@ function AppRoutes() {
           <Route path="courses/new" element={<CourseEditor />} />
           <Route path="courses/:id" element={<CourseView />} />
           <Route path="courses/:id/edit" element={<CourseEditor />} />
+          <Route path="course-note/:coursePageId" element={<CourseNoteView />} />
           {/* Notes routes */}
           <Route path="notes" element={<NotesDashboard />} />
           <Route path="notes/:notebookId" element={<NotebookView />} />
