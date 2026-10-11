@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { PartialBlock } from "@blocknote/core";
+import { codeBlockOptions } from "@blocknote/code-block";
 import { useCreateBlockNote } from "@blocknote/react";
 import { BlockNoteView } from "@blocknote/mantine";
 import "@blocknote/mantine/style.css";
@@ -67,6 +68,8 @@ export function NotesBlockEditor({ initialContent, onChange, onSave, editable = 
   // Create editor with custom image upload handler
   const editor = useCreateBlockNote({
     initialContent: initialBlocks,
+    // Syntax-highlighted code blocks (Shiki, precompiled langs — offline-safe).
+    codeBlock: codeBlockOptions,
     uploadFile: async (file: File) => {
       try {
         // Convert file to data URL and return directly

@@ -19,6 +19,7 @@
     "url": "git+https://github.com/stephen-os/kioku-desktop.git"
   },
   "dependencies": {
+    "@blocknote/code-block": "^0.48.1",
     "@blocknote/core": "^0.48.1",
     "@blocknote/mantine": "^0.48.1",
     "@blocknote/react": "^0.48.1",
