@@ -4,6 +4,7 @@ pub mod course_content;
 pub mod courses;
 pub mod decks;
 pub mod models;
+pub mod seed;
 pub mod notebooks;
 pub mod quizzes;
 pub mod state;

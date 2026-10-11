@@ -49,5 +49,15 @@ pub fn init_database(app: &AppHandle) -> Result<Connection, String> {
         [],
     );
 
+    // First run (no users): seed the Demo profile + an owned-content course.
+    let user_count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM users", [], |r| r.get(0))
+        .unwrap_or(0);
+    if user_count == 0 {
+        if let Err(e) = super::seed::seed_demo(&conn) {
+            eprintln!("Warning: demo seed failed: {}", e);
+        }
+    }
+
     Ok(conn)
 }
