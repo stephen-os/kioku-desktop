@@ -19,7 +19,7 @@ function courseLaunchUrl(courseId: string, lessonId: string, item: LessonItem): 
     item.itemType === "deck"
       ? `/decks/${item.itemId}/study`
       : `/quizzes/${item.itemId}/take`;
-  const ctx = new URLSearchParams({ courseId, lessonId, lessonItemId: item.id });
+  const ctx = new URLSearchParams({ courseId, lessonId, lessonItemId: item.id, source: "course" });
   if (item.requirementType === "min_score" && item.requirementValue != null) {
     ctx.set("minScore", String(item.requirementValue));
   }

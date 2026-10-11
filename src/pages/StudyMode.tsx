@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useParams, Link, useSearchParams } from "react-router-dom";
 import type { Card, Deck, Tag } from "@/types";
 import { CODE_LANGUAGE_LABELS } from "@/types";
-import { getCardsForDeck, getDeck, getTagsForDeck, startStudySession, endStudySession, recordLessonProgress } from "@/lib/db";
+import { getCardsForDeck, getDeck, getTagsForDeck, startStudySession, endStudySession, recordLessonProgress, getCourseDeck, getCourseCards } from "@/lib/db";
 import { shuffle } from "@/lib/utils";
 import { isTauri } from "@/lib/auth";
 import { CodeBlock } from "@/components/CodeEditor";
@@ -65,6 +65,9 @@ export function StudyMode() {
   const courseId = searchParams.get("courseId") || "";
   const courseLessonId = searchParams.get("lessonId") || "";
   const courseLessonItemId = searchParams.get("lessonItemId") || "";
+  // When launched from a course, `id` is a course_deck id loaded from the course
+  // store (not the personal library), and we don't record a library study session.
+  const isCourse = (searchParams.get("source") || "") === "course";
   const backPath = courseId ? `/courses/${courseId}` : `/decks/${id}`;
   const backLabel = courseId ? "Back to Course" : "Back";
 
@@ -110,6 +113,21 @@ export function StudyMode() {
       if (!id) return;
       try {
         if (isTauri()) {
+          // Course-owned deck: load from the course store, no tags, no filters.
+          if (isCourse) {
+            const [deckData, cardsData] = await Promise.all([
+              getCourseDeck(id),
+              getCourseCards(id),
+            ]);
+            if (cancelled) return;
+            setDeck(deckData);
+            setAllCards(cardsData);
+            setTags([]);
+            setCards(shuffle(cardsData));
+            setStudyStarted(true);
+            return;
+          }
+
           const [deckData, cardsData, tagsData] = await Promise.all([
             getDeck(id),
             getCardsForDeck(id),
@@ -177,11 +195,12 @@ export function StudyMode() {
     return () => {
       cancelled = true;
     };
-  }, [id, hasUrlFilters, urlFrontSearch, urlBackSearch, urlTagsRaw, urlTagMode]);
+  }, [id, isCourse, hasUrlFilters, urlFrontSearch, urlBackSearch, urlTagsRaw, urlTagMode]);
 
-  // Start study session when studying begins
+  // Start study session when studying begins (library decks only — a course_deck
+  // id isn't in the decks table, and course completion is tracked via lesson_progress).
   useEffect(() => {
-    if (studyStarted && id && cards.length > 0 && !sessionIdRef.current && !sessionStartingRef.current) {
+    if (!isCourse && studyStarted && id && cards.length > 0 && !sessionIdRef.current && !sessionStartingRef.current) {
       sessionStartingRef.current = true;
       startStudySession(id)
         .then((session) => {
