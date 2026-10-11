@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import type {
   Card,
   Tag,
@@ -25,15 +25,24 @@ import {
   createTag,
   addTagToCard,
   removeTagFromCard,
+  getCourseDeck,
+  getCourseCards,
+  courseUpdateDeck,
+  courseCreateCard,
+  courseUpdateCard,
+  courseDeleteCard,
 } from "@/lib/db";
 import { CodeEditor, CodeBlock } from "@/components/CodeEditor";
 import { useToast } from "@/context/ToastContext";
 
 export function DeckEdit() {
   const { id } = useParams<{ id: string }>();
+  const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const toast = useToast();
   const isNew = id === "new";
+  const isCourse = searchParams.get("source") === "course";
+  const courseId = searchParams.get("courseId");
 
   const [cards, setCards] = useState<Card[]>([]);
   const [deckTags, setDeckTags] = useState<Tag[]>([]);
@@ -81,9 +90,9 @@ export function DeckEdit() {
   const loadDeck = async (deckId: string) => {
     try {
       const [deckData, cardsData, tagsData] = await Promise.all([
-        getDeck(deckId),
-        getCardsForDeck(deckId),
-        getTagsForDeck(deckId),
+        isCourse ? getCourseDeck(deckId) : getDeck(deckId),
+        isCourse ? getCourseCards(deckId) : getCardsForDeck(deckId),
+        isCourse ? Promise.resolve([] as Tag[]) : getTagsForDeck(deckId),
       ]);
       if (deckData) {
         setCards(cardsData);
@@ -129,7 +138,11 @@ export function DeckEdit() {
           description: description.trim() || undefined,
           shuffleCards,
         };
-        await updateDeck(id, request);
+        if (isCourse) {
+          await courseUpdateDeck(id, request);
+        } else {
+          await updateDeck(id, request);
+        }
         await loadDeck(id);
         toast.success("Deck saved");
       }
@@ -154,7 +167,11 @@ export function DeckEdit() {
   const handleDeleteCard = async (cardId: string) => {
     if (!id) return;
     try {
-      await deleteCard(cardId, id);
+      if (isCourse) {
+        await courseDeleteCard(cardId);
+      } else {
+        await deleteCard(cardId, id);
+      }
       await loadDeck(id);
       toast.success("Card deleted");
     } catch (error) {
@@ -168,10 +185,18 @@ export function DeckEdit() {
 
     try {
       if (editingCard) {
-        await updateCard(editingCard.id, id, request as UpdateCardRequest);
+        if (isCourse) {
+          await courseUpdateCard(editingCard.id, request as UpdateCardRequest);
+        } else {
+          await updateCard(editingCard.id, id, request as UpdateCardRequest);
+        }
         toast.success("Card updated");
       } else {
-        await createCard(id, request as CreateCardRequest);
+        if (isCourse) {
+          await courseCreateCard(id, request as CreateCardRequest);
+        } else {
+          await createCard(id, request as CreateCardRequest);
+        }
         toast.success("Card added");
       }
       await loadDeck(id);
@@ -196,8 +221,8 @@ export function DeckEdit() {
         {/* Header */}
         <div className="flex items-center justify-between mb-6">
           <BackButton
-            fallbackPath={isNew ? "/" : `/decks/${id}`}
-            label={isNew ? "Back to Decks" : "Back to Deck"}
+            fallbackPath={isCourse && courseId ? `/courses/${courseId}/edit` : isNew ? "/" : `/decks/${id}`}
+            label={isCourse ? "Back to Course" : isNew ? "Back to Decks" : "Back to Deck"}
           />
           <button
             onClick={handleSaveDeck}
@@ -299,6 +324,7 @@ export function DeckEdit() {
           card={editingCard}
           deckId={id}
           deckTags={deckTags}
+          hideTags={isCourse}
           onSave={handleSaveCard}
           onClose={() => setShowCardModal(false)}
           onTagsChange={() => loadDeck(id)}
@@ -452,12 +478,13 @@ interface CardModalProps {
   card: Card | null;
   deckId: string;
   deckTags: Tag[];
+  hideTags?: boolean;
   onSave: (request: CreateCardRequest | UpdateCardRequest) => void;
   onClose: () => void;
   onTagsChange?: () => void;
 }
 
-function CardModal({ card, deckId, deckTags, onSave, onClose, onTagsChange }: CardModalProps) {
+function CardModal({ card, deckId, deckTags, hideTags, onSave, onClose, onTagsChange }: CardModalProps) {
   const toast = useToast();
   const [front, setFront] = useState(card?.front || "");
   const [frontType, setFrontType] = useState<ContentType>(card?.frontType || "TEXT");
@@ -810,6 +837,7 @@ function CardModal({ card, deckId, deckTags, onSave, onClose, onTagsChange }: Ca
           )}
 
           {/* Tags */}
+          {!hideTags && (
           <div>
             <label className="block text-sm font-medium text-[#939293] mb-2">Tags</label>
             <div className="space-y-3">
@@ -885,6 +913,7 @@ function CardModal({ card, deckId, deckTags, onSave, onClose, onTagsChange }: Ca
               </div>
             </div>
           </div>
+          )}
         </div>
 
         {/* Footer */}

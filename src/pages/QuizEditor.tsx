@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import type {
   Quiz,
   Question,
@@ -28,15 +28,25 @@ import {
   addTagToQuestion,
   removeTagFromQuestion,
   QuizTag,
+  getCourseQuiz,
+  courseUpdateQuiz,
+  courseCreateQuestion,
+  courseUpdateQuestion,
+  courseDeleteQuestion,
+  courseUpdateQuestionChoices,
+  courseReorderQuestions,
 } from "@/lib/db";
 import { CodeEditor } from "@/components/CodeEditor";
 import { useToast } from "@/context/ToastContext";
 
 export function QuizEditor() {
   const { id } = useParams<{ id: string }>();
+  const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const toast = useToast();
   const isNew = !id || id === "new";
+  const isCourse = searchParams.get("source") === "course";
+  const courseId = searchParams.get("courseId");
 
   const [quiz, setQuiz] = useState<Quiz | null>(null);
   const [quizTags, setQuizTags] = useState<QuizTag[]>([]);
@@ -57,8 +67,8 @@ export function QuizEditor() {
   const loadQuiz = async (quizId: string) => {
     try {
       const [data, tags] = await Promise.all([
-        getQuiz(quizId),
-        getTagsForQuiz(quizId),
+        isCourse ? getCourseQuiz(quizId) : getQuiz(quizId),
+        isCourse ? Promise.resolve([] as QuizTag[]) : getTagsForQuiz(quizId),
       ]);
       setQuiz(data);
       setQuizTags(tags);
@@ -89,7 +99,11 @@ export function QuizEditor() {
         const newQuiz = await createQuiz(request);
         navigate(`/quizzes/${newQuiz.id}/edit`, { replace: true });
       } else if (id) {
-        await updateQuiz(id, request);
+        if (isCourse) {
+          await courseUpdateQuiz(id, request);
+        } else {
+          await updateQuiz(id, request);
+        }
         await loadQuiz(id);
         toast.success("Quiz saved");
       }
@@ -113,7 +127,11 @@ export function QuizEditor() {
 
   const handleDeleteQuestion = async (questionId: string) => {
     try {
-      await deleteQuestion(questionId);
+      if (isCourse) {
+        await courseDeleteQuestion(questionId);
+      } else {
+        await deleteQuestion(questionId);
+      }
       if (id) await loadQuiz(id);
       toast.success("Question deleted");
     } catch (error) {
@@ -130,13 +148,24 @@ export function QuizEditor() {
 
     try {
       if (editingQuestion) {
-        await updateQuestion(editingQuestion.id, request as UpdateQuestionRequest);
-        await updateQuestionChoices(editingQuestion.id, choices);
+        if (isCourse) {
+          await courseUpdateQuestion(editingQuestion.id, request as UpdateQuestionRequest);
+          await courseUpdateQuestionChoices(editingQuestion.id, choices);
+        } else {
+          await updateQuestion(editingQuestion.id, request as UpdateQuestionRequest);
+          await updateQuestionChoices(editingQuestion.id, choices);
+        }
         toast.success("Question updated");
       } else {
-        const newQuestion = await createQuestion(id, request as CreateQuestionRequest);
+        const newQuestion = isCourse
+          ? await courseCreateQuestion(id, request as CreateQuestionRequest)
+          : await createQuestion(id, request as CreateQuestionRequest);
         if (choices.length > 0) {
-          await updateQuestionChoices(newQuestion.id, choices);
+          if (isCourse) {
+            await courseUpdateQuestionChoices(newQuestion.id, choices);
+          } else {
+            await updateQuestionChoices(newQuestion.id, choices);
+          }
         }
         toast.success("Question added");
       }
@@ -161,7 +190,11 @@ export function QuizEditor() {
     [questions[index], questions[newIndex]] = [questions[newIndex], questions[index]];
 
     try {
-      await reorderQuestions(quiz.id, questions.map((q) => q.id));
+      if (isCourse) {
+        await courseReorderQuestions(quiz.id, questions.map((q) => q.id));
+      } else {
+        await reorderQuestions(quiz.id, questions.map((q) => q.id));
+      }
       if (id) await loadQuiz(id);
     } catch (error) {
       console.error("Failed to reorder questions:", error);
@@ -265,8 +298,8 @@ export function QuizEditor() {
         {/* Header */}
         <div className="flex items-center justify-between mb-6">
           <BackButton
-            fallbackPath="/quizzes"
-            label="Back to Quizzes"
+            fallbackPath={isCourse && courseId ? `/courses/${courseId}/edit` : "/quizzes"}
+            label={isCourse ? "Back to Course" : "Back to Quizzes"}
           />
           <button
             onClick={handleSaveQuiz}
@@ -371,6 +404,7 @@ export function QuizEditor() {
           question={editingQuestion}
           quizId={id}
           quizTags={quizTags}
+          hideTags={isCourse}
           onSave={handleSaveQuestion}
           onClose={() => setShowQuestionModal(false)}
           onTagsChange={() => loadQuiz(id)}
@@ -524,12 +558,13 @@ interface QuestionModalProps {
   question: Question | null;
   quizId: string;
   quizTags: QuizTag[];
+  hideTags?: boolean;
   onSave: (request: CreateQuestionRequest | UpdateQuestionRequest, choices: CreateChoiceRequest[]) => void;
   onClose: () => void;
   onTagsChange?: () => void;
 }
 
-function QuestionModal({ question, quizId, quizTags, onSave, onClose, onTagsChange }: QuestionModalProps) {
+function QuestionModal({ question, quizId, quizTags, hideTags, onSave, onClose, onTagsChange }: QuestionModalProps) {
   const toast = useToast();
   const [questionType, setQuestionType] = useState<QuestionType>(
     question?.questionType || "multiple_choice"
@@ -914,6 +949,7 @@ function QuestionModal({ question, quizId, quizTags, onSave, onClose, onTagsChan
           </div>
 
           {/* Tags */}
+          {!hideTags && (
           <div>
             <label className="block text-sm font-medium text-[#939293] mb-2">Tags</label>
             <div className="space-y-3">
@@ -989,6 +1025,7 @@ function QuestionModal({ question, quizId, quizTags, onSave, onClose, onTagsChan
               </div>
             </div>
           </div>
+          )}
         </div>
 
         {/* Footer */}

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import type { Course, Lesson, Deck, Quiz } from "@/types";
+import type { Course, Lesson, LessonItem, Deck, Quiz, PageSearchResult } from "@/types";
 import { BackButton } from "@/components";
 import {
   getCourseWithLessons,
@@ -15,6 +15,7 @@ import {
   reorderLessonItems,
   getAllDecks,
   getAllQuizzes,
+  getAllPageTitles,
   resetCourseProgress,
 } from "@/lib/db";
 import { useToast } from "@/context/ToastContext";
@@ -35,13 +36,17 @@ export function CourseEditor() {
   // Available items to add
   const [decks, setDecks] = useState<Deck[]>([]);
   const [quizzes, setQuizzes] = useState<Quiz[]>([]);
+  const [pages, setPages] = useState<PageSearchResult[]>([]);
 
   // Modal states
   const [showAddLessonModal, setShowAddLessonModal] = useState(false);
   const [editingLesson, setEditingLesson] = useState<Lesson | null>(null);
   const [showAddItemModal, setShowAddItemModal] = useState(false);
   const [targetLessonId, setTargetLessonId] = useState<string | null>(null);
-  const [addItemType, setAddItemType] = useState<"deck" | "quiz">("deck");
+  const [addItemType, setAddItemType] = useState<"deck" | "quiz" | "note">("deck");
+  const [addMode, setAddMode] = useState<"library" | "blank">("library");
+  const [blankName, setBlankName] = useState("");
+  const [minScore, setMinScore] = useState(70);
   const [searchTerm, setSearchTerm] = useState("");
 
   // Lesson form
@@ -73,12 +78,14 @@ export function CourseEditor() {
 
   const loadData = useCallback(async () => {
     try {
-      const [decksData, quizzesData] = await Promise.all([
+      const [decksData, quizzesData, pagesData] = await Promise.all([
         getAllDecks(),
         getAllQuizzes(),
+        getAllPageTitles(),
       ]);
       setDecks(decksData);
       setQuizzes(quizzesData);
+      setPages(pagesData);
 
       if (!isNew && id) {
         const courseData = await getCourseWithLessons(id);
@@ -207,26 +214,77 @@ export function CourseEditor() {
     }
   };
 
-  // Item operations
-  const handleAddItem = async (itemType: "deck" | "quiz", itemId: string, itemName: string) => {
+  // Default requirement for a lesson item type (quizzes gate on min_score;
+  // decks complete on study, notes on read — see COURSES-DESIGN §12).
+  const requirementFor = (itemType: "deck" | "quiz" | "note") => {
+    if (itemType === "quiz") return { requirementType: "min_score", requirementValue: minScore };
+    if (itemType === "note") return { requirementType: "read" };
+    return { requirementType: "study" };
+  };
+
+  const typeLabel = (itemType: "deck" | "quiz" | "note") =>
+    itemType === "deck" ? "Deck" : itemType === "quiz" ? "Quiz" : "Note";
+
+  // Item operations — copy a library item into the course (course OWNS the copy).
+  const handleAddItem = async (
+    itemType: "deck" | "quiz" | "note",
+    itemId: string,
+    itemName: string
+  ) => {
     if (!targetLessonId) return;
 
     try {
-      // Copy the library item into the course (the course then OWNS the copy).
       await courseAddItem({
         lessonId: targetLessonId,
         itemType,
         mode: "library",
         sourceId: itemId,
         name: itemName,
+        ...requirementFor(itemType),
       });
       setShowAddItemModal(false);
       setSearchTerm("");
       loadData();
-      toast.success(`${itemType === "deck" ? "Deck" : "Quiz"} copied into lesson`);
+      toast.success(`${typeLabel(itemType)} copied into lesson`);
     } catch (error) {
       console.error("Failed to add item:", error);
       toast.error("Failed to add item");
+    }
+  };
+
+  // Author a new blank deck/quiz/note owned by the course.
+  const handleCreateBlankItem = async () => {
+    if (!targetLessonId || !blankName.trim()) return;
+
+    try {
+      const created = await courseAddItem({
+        lessonId: targetLessonId,
+        itemType: addItemType,
+        mode: "blank",
+        name: blankName.trim(),
+        ...requirementFor(addItemType),
+      });
+      setShowAddItemModal(false);
+      setBlankName("");
+      loadData();
+      toast.success(`${typeLabel(addItemType)} created`);
+      // Jump straight into editing the new blank content.
+      if (created.itemId) handleEditItem(created);
+    } catch (error) {
+      console.error("Failed to create item:", error);
+      toast.error("Failed to create item");
+    }
+  };
+
+  // Edit a course-owned item's content in place (Edit-course mode).
+  const handleEditItem = (item: LessonItem) => {
+    if (!item.itemId || !id) return;
+    if (item.itemType === "deck") {
+      navigate(`/decks/${item.itemId}/edit?source=course&courseId=${id}`);
+    } else if (item.itemType === "quiz") {
+      navigate(`/quizzes/${item.itemId}/edit?source=course&courseId=${id}`);
+    } else {
+      navigate(`/course-note/${item.itemId}?edit=1&courseId=${id}`);
     }
   };
 
@@ -284,6 +342,10 @@ export function CourseEditor() {
     setTargetLessonId(lessonId);
     setShowAddItemModal(true);
     setSearchTerm("");
+    setAddItemType("deck");
+    setAddMode("library");
+    setBlankName("");
+    setMinScore(70);
   };
 
   if (loading) {
@@ -306,6 +368,9 @@ export function CourseEditor() {
   );
   const filteredQuizzes = availableQuizzes.filter(q =>
     q.name.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+  const filteredPages = pages.filter(p =>
+    p.title.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
   return (
@@ -403,6 +468,7 @@ export function CourseEditor() {
                       onMove={(dir) => handleMoveLesson(lessonIndex, dir)}
                       onAddItem={() => openAddItemModal(lesson.id)}
                       onRemoveItem={handleRemoveItem}
+                      onEditItem={handleEditItem}
                       onMoveItem={(idx, dir) => handleMoveItem(lesson, idx, dir)}
                     />
                   ))}
@@ -534,7 +600,7 @@ export function CourseEditor() {
       {/* Add Item Modal */}
       {showAddItemModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-[#403e41] rounded-xl border border-[#5b595c] w-full max-w-lg max-h-[80vh] flex flex-col">
+          <div className="bg-[#403e41] rounded-xl border border-[#5b595c] w-full max-w-lg max-h-[85vh] flex flex-col">
             {/* Modal header */}
             <div className="p-4 border-b border-[#5b595c]">
               <div className="flex items-center justify-between mb-3">
@@ -554,41 +620,115 @@ export function CourseEditor() {
 
               {/* Type toggle */}
               <div className="flex gap-2 mb-3">
+                {(["deck", "quiz", "note"] as const).map((t) => {
+                  const active = {
+                    deck: "bg-[#78dce8]/20 text-[#78dce8]",
+                    quiz: "bg-[#ab9df2]/20 text-[#ab9df2]",
+                    note: "bg-[#fc9867]/20 text-[#fc9867]",
+                  }[t];
+                  return (
+                    <button
+                      key={t}
+                      onClick={() => {
+                        setAddItemType(t);
+                        setSearchTerm("");
+                        if (t === "note") setAddMode("blank");
+                      }}
+                      className={`flex-1 py-2 text-sm rounded-lg font-medium transition-colors ${
+                        addItemType === t ? active : "bg-[#2d2a2e] text-[#939293] hover:text-[#fcfcfa]"
+                      }`}
+                    >
+                      {typeLabel(t)}s
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Mode toggle */}
+              <div className="flex gap-2 mb-3">
                 <button
-                  onClick={() => setAddItemType("deck")}
-                  className={`flex-1 py-2 text-sm rounded-lg font-medium transition-colors ${
-                    addItemType === "deck"
-                      ? "bg-[#78dce8]/20 text-[#78dce8]"
+                  onClick={() => setAddMode("library")}
+                  className={`flex-1 py-1.5 text-xs rounded-lg font-medium transition-colors ${
+                    addMode === "library"
+                      ? "bg-[#ffd866] text-[#2d2a2e]"
                       : "bg-[#2d2a2e] text-[#939293] hover:text-[#fcfcfa]"
                   }`}
                 >
-                  Decks ({availableDecks.length})
+                  Copy from library
                 </button>
                 <button
-                  onClick={() => setAddItemType("quiz")}
-                  className={`flex-1 py-2 text-sm rounded-lg font-medium transition-colors ${
-                    addItemType === "quiz"
-                      ? "bg-[#ab9df2]/20 text-[#ab9df2]"
+                  onClick={() => setAddMode("blank")}
+                  className={`flex-1 py-1.5 text-xs rounded-lg font-medium transition-colors ${
+                    addMode === "blank"
+                      ? "bg-[#ffd866] text-[#2d2a2e]"
                       : "bg-[#2d2a2e] text-[#939293] hover:text-[#fcfcfa]"
                   }`}
                 >
-                  Quizzes ({availableQuizzes.length})
+                  Create new
                 </button>
               </div>
 
-              {/* Search */}
-              <input
-                type="text"
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                placeholder={`Search ${addItemType === "deck" ? "decks" : "quizzes"}...`}
-                className="w-full px-3 py-2 bg-[#2d2a2e] border border-[#5b595c] rounded-lg text-[#fcfcfa] placeholder-[#5b595c] focus:outline-none focus:border-[#ffd866]"
-              />
+              {/* Quiz passing score (the gate) — applies to both modes */}
+              {addItemType === "quiz" && (
+                <label className="flex items-center gap-2 text-sm text-[#fcfcfa] mb-3">
+                  Passing score
+                  <input
+                    type="number"
+                    min={0}
+                    max={100}
+                    value={minScore}
+                    onChange={(e) => setMinScore(Math.max(0, Math.min(100, Number(e.target.value))))}
+                    className="w-20 px-2 py-1 bg-[#2d2a2e] border border-[#5b595c] rounded-lg text-[#fcfcfa] focus:outline-none focus:border-[#ffd866]"
+                  />
+                  <span className="text-[#939293]">%</span>
+                </label>
+              )}
+
+              {/* Search (library mode only) */}
+              {addMode === "library" && (
+                <input
+                  type="text"
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  placeholder={`Search ${typeLabel(addItemType).toLowerCase()}s...`}
+                  className="w-full px-3 py-2 bg-[#2d2a2e] border border-[#5b595c] rounded-lg text-[#fcfcfa] placeholder-[#5b595c] focus:outline-none focus:border-[#ffd866]"
+                />
+              )}
             </div>
 
             {/* Modal content */}
             <div className="flex-1 overflow-y-auto p-4">
-              {addItemType === "deck" ? (
+              {addMode === "blank" ? (
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-sm font-medium text-[#939293] mb-1">
+                      {typeLabel(addItemType)} name <span className="text-[#ff6188]">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={blankName}
+                      onChange={(e) => setBlankName(e.target.value)}
+                      placeholder={`New ${typeLabel(addItemType).toLowerCase()} name`}
+                      className="w-full px-3 py-2 bg-[#2d2a2e] border border-[#5b595c] rounded-lg text-[#fcfcfa] placeholder-[#5b595c] focus:outline-none focus:border-[#ffd866]"
+                      autoFocus
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") handleCreateBlankItem();
+                      }}
+                    />
+                  </div>
+                  <button
+                    onClick={handleCreateBlankItem}
+                    disabled={!blankName.trim()}
+                    className="px-4 py-2 bg-[#ffd866] text-[#2d2a2e] text-sm rounded-lg hover:bg-[#ffd866]/90 transition-colors font-medium disabled:opacity-50"
+                  >
+                    Create &amp; edit {typeLabel(addItemType).toLowerCase()}
+                  </button>
+                  <p className="text-xs text-[#939293]">
+                    Creates an empty {typeLabel(addItemType).toLowerCase()} owned by this course and opens
+                    the editor so you can add content.
+                  </p>
+                </div>
+              ) : addItemType === "deck" ? (
                 filteredDecks.length > 0 ? (
                   <div className="space-y-2">
                     {filteredDecks.map((deck) => (
@@ -618,33 +758,56 @@ export function CourseEditor() {
                       : "No decks match your search."}
                   </div>
                 )
-              ) : filteredQuizzes.length > 0 ? (
+              ) : addItemType === "quiz" ? (
+                filteredQuizzes.length > 0 ? (
+                  <div className="space-y-2">
+                    {filteredQuizzes.map((quiz) => (
+                      <button
+                        key={quiz.id}
+                        onClick={() => handleAddItem("quiz", quiz.id, quiz.name)}
+                        className="w-full text-left p-3 bg-[#2d2a2e] rounded-lg border border-[#5b595c] hover:border-[#ab9df2] transition-colors"
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="text-[#fcfcfa] font-medium">{quiz.name}</span>
+                          <span className="text-xs text-[#939293]">
+                            {quiz.questionCount ?? quiz.questions?.length ?? 0} questions
+                          </span>
+                        </div>
+                        {quiz.description && (
+                          <p className="text-sm text-[#939293] mt-1 line-clamp-1">
+                            {quiz.description}
+                          </p>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-center py-8 text-[#939293]">
+                    {availableQuizzes.length === 0
+                      ? "All quizzes have been added to this lesson."
+                      : "No quizzes match your search."}
+                  </div>
+                )
+              ) : filteredPages.length > 0 ? (
                 <div className="space-y-2">
-                  {filteredQuizzes.map((quiz) => (
+                  {filteredPages.map((page) => (
                     <button
-                      key={quiz.id}
-                      onClick={() => handleAddItem("quiz", quiz.id, quiz.name)}
-                      className="w-full text-left p-3 bg-[#2d2a2e] rounded-lg border border-[#5b595c] hover:border-[#ab9df2] transition-colors"
+                      key={page.id}
+                      onClick={() => handleAddItem("note", page.id, page.title)}
+                      className="w-full text-left p-3 bg-[#2d2a2e] rounded-lg border border-[#5b595c] hover:border-[#fc9867] transition-colors"
                     >
                       <div className="flex items-center justify-between">
-                        <span className="text-[#fcfcfa] font-medium">{quiz.name}</span>
-                        <span className="text-xs text-[#939293]">
-                          {quiz.questionCount ?? quiz.questions?.length ?? 0} questions
-                        </span>
+                        <span className="text-[#fcfcfa] font-medium">{page.title}</span>
+                        <span className="text-xs text-[#939293]">{page.notebookName}</span>
                       </div>
-                      {quiz.description && (
-                        <p className="text-sm text-[#939293] mt-1 line-clamp-1">
-                          {quiz.description}
-                        </p>
-                      )}
                     </button>
                   ))}
                 </div>
               ) : (
                 <div className="text-center py-8 text-[#939293]">
-                  {availableQuizzes.length === 0
-                    ? "All quizzes have been added to this lesson."
-                    : "No quizzes match your search."}
+                  {pages.length === 0
+                    ? "No notes in your library yet. Use \"Create new\" to author one."
+                    : "No notes match your search."}
                 </div>
               )}
             </div>
@@ -664,6 +827,7 @@ interface LessonEditorProps {
   onMove: (direction: "up" | "down") => void;
   onAddItem: () => void;
   onRemoveItem: (itemId: string) => void;
+  onEditItem: (item: LessonItem) => void;
   onMoveItem: (index: number, direction: "up" | "down") => void;
 }
 
@@ -676,6 +840,7 @@ function LessonEditor({
   onMove,
   onAddItem,
   onRemoveItem,
+  onEditItem,
   onMoveItem,
 }: LessonEditorProps) {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -820,10 +985,18 @@ function LessonEditor({
                         ? "bg-[#ff6188]/20 text-[#ff6188]"
                         : item.itemType === "deck"
                         ? "bg-[#78dce8]/20 text-[#78dce8]"
-                        : "bg-[#ab9df2]/20 text-[#ab9df2]"
+                        : item.itemType === "quiz"
+                        ? "bg-[#ab9df2]/20 text-[#ab9df2]"
+                        : "bg-[#fc9867]/20 text-[#fc9867]"
                     }`}
                   >
-                    {item.isMissing ? "Missing" : item.itemType === "deck" ? "Deck" : "Quiz"}
+                    {item.isMissing
+                      ? "Missing"
+                      : item.itemType === "deck"
+                      ? "Deck"
+                      : item.itemType === "quiz"
+                      ? "Quiz"
+                      : "Note"}
                   </span>
 
                   {/* Item name */}
@@ -836,6 +1009,19 @@ function LessonEditor({
                     <span className="text-xs px-2 py-0.5 rounded bg-[#ffd866]/20 text-[#ffd866]">
                       {item.requirementType === "min_score" ? `≥${item.requirementValue}%` : item.requirementType}
                     </span>
+                  )}
+
+                  {/* Edit content button */}
+                  {!item.isMissing && item.itemId && (
+                    <button
+                      onClick={() => onEditItem(item)}
+                      className="p-1 text-[#78dce8] hover:bg-[#78dce8]/10 rounded transition-colors"
+                      title="Edit content"
+                    >
+                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                      </svg>
+                    </button>
                   )}
 
                   {/* Remove button */}
@@ -859,7 +1045,7 @@ function LessonEditor({
             onClick={onAddItem}
             className="text-sm text-[#a9dc76] hover:text-[#a9dc76]/80"
           >
-            + Add deck or quiz
+            + Add deck, quiz, or note
           </button>
         </div>
       )}
