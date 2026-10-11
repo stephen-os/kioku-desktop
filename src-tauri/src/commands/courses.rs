@@ -69,6 +69,7 @@ pub fn update_course(
         &id,
         &request.name,
         request.description.as_deref(),
+        request.open_navigation,
     )
 }
 

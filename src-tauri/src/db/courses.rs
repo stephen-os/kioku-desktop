@@ -44,7 +44,8 @@ pub fn get_all_courses(conn: &Connection, user_id: &str) -> Result<Vec<Course>, 
                          )
                      )
                     ) as completed_lesson_count,
-                    EXISTS(SELECT 1 FROM course_favorites WHERE course_id = c.id AND user_id = ?1) as is_favorite
+                    EXISTS(SELECT 1 FROM course_favorites WHERE course_id = c.id AND user_id = ?1) as is_favorite,
+                    c.open_navigation
              FROM courses c WHERE c.user_id = ?1 ORDER BY c.updated_at DESC",
         )
         .map_err(|e| format!("Failed to prepare query: {}", e))?;
@@ -61,6 +62,7 @@ pub fn get_all_courses(conn: &Connection, user_id: &str) -> Result<Vec<Course>, 
                 lesson_count: Some(row.get(6)?),
                 completed_lesson_count: Some(row.get(7)?),
                 is_favorite: Some(row.get::<_, i32>(8)? == 1),
+                open_navigation: row.get::<_, i32>(9)? != 0,
                 lessons: vec![],
             })
         })
@@ -75,7 +77,8 @@ pub fn get_course(conn: &Connection, user_id: &str, id: &str) -> Result<Option<C
     match conn.query_row(
         "SELECT c.id, c.user_id, c.name, c.description, c.created_at, c.updated_at,
                 (SELECT COUNT(*) FROM lessons WHERE course_id = c.id) as lesson_count,
-                EXISTS(SELECT 1 FROM course_favorites WHERE course_id = c.id AND user_id = ?1) as is_favorite
+                EXISTS(SELECT 1 FROM course_favorites WHERE course_id = c.id AND user_id = ?1) as is_favorite,
+                c.open_navigation
          FROM courses c WHERE c.id = ?2",
         params![user_id, id],
         |row| {
@@ -89,6 +92,7 @@ pub fn get_course(conn: &Connection, user_id: &str, id: &str) -> Result<Option<C
                 lesson_count: Some(row.get(6)?),
                 completed_lesson_count: None, // Will be calculated when loading lessons
                 is_favorite: Some(row.get::<_, i32>(7)? == 1),
+                open_navigation: row.get::<_, i32>(8)? != 0,
                 lessons: vec![],
             })
         },
@@ -125,12 +129,13 @@ pub fn update_course(
     id: &str,
     name: &str,
     description: Option<&str>,
+    open_navigation: bool,
 ) -> Result<Course, String> {
     let now = chrono::Utc::now().to_rfc3339();
 
     conn.execute(
-        "UPDATE courses SET name = ?1, description = ?2, updated_at = ?3 WHERE id = ?4",
-        params![name, description, now, id],
+        "UPDATE courses SET name = ?1, description = ?2, open_navigation = ?3, updated_at = ?4 WHERE id = ?5",
+        params![name, description, open_navigation as i32, now, id],
     )
     .map_err(|e| format!("Failed to update course: {}", e))?;
 

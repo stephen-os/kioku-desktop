@@ -233,6 +233,8 @@ pub struct Course {
     pub user_id: String,
     pub name: String,
     pub description: Option<String>,
+    #[serde(default)]
+    pub open_navigation: bool,
     pub created_at: String,
     pub updated_at: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -257,6 +259,8 @@ pub struct CreateCourseRequest {
 pub struct UpdateCourseRequest {
     pub name: String,
     pub description: Option<String>,
+    #[serde(default)]
+    pub open_navigation: bool,
 }
 
 // ============================================

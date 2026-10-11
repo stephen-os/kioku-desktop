@@ -443,6 +443,7 @@ export interface Course {
   userId: string;
   name: string;
   description: string | null;
+  openNavigation: boolean;
   createdAt: string;
   updatedAt: string;
   lessonCount?: number;
@@ -501,6 +502,7 @@ export interface CreateCourseRequest {
 export interface UpdateCourseRequest {
   name: string;
   description?: string;
+  openNavigation?: boolean;
 }
 
 export interface CreateLessonRequest {

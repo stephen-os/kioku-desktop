@@ -188,9 +188,12 @@ export function CourseView() {
   const nextItem = findNextItem();
   const continueTo = nextItem ? courseLaunchUrl(id!, nextItem.lesson.id, nextItem.item) : "";
 
-  // Linear gating: a lesson is locked until every earlier lesson is complete.
+  // Linear gating: a lesson is locked until every earlier lesson is complete —
+  // unless the course has open navigation (all lessons unlocked).
   const lessons = course.lessons ?? [];
-  const lessonLocked = lessons.map((_, i) => lessons.slice(0, i).some((l) => !l.isCompleted));
+  const lessonLocked = lessons.map(
+    (_, i) => !course.openNavigation && lessons.slice(0, i).some((l) => !l.isCompleted)
+  );
 
   return (
     <div className="min-h-full bg-[#2d2a2e]">

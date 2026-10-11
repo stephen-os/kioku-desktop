@@ -28,6 +28,7 @@ export function CourseEditor() {
   const [course, setCourse] = useState<Course | null>(null);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
+  const [openNavigation, setOpenNavigation] = useState(false);
   const [loading, setLoading] = useState(!isNew);
   const [saving, setSaving] = useState(false);
 
@@ -85,6 +86,7 @@ export function CourseEditor() {
           setCourse(courseData);
           setName(courseData.name);
           setDescription(courseData.description || "");
+          setOpenNavigation(courseData.openNavigation);
         } else {
           toast.error("Course not found");
           navigate("/courses");
@@ -121,6 +123,7 @@ export function CourseEditor() {
         await updateCourse(id, {
           name: name.trim(),
           description: description.trim() || undefined,
+          openNavigation,
         });
         toast.success("Course saved");
         loadData();
@@ -347,6 +350,18 @@ export function CourseEditor() {
                   className="w-full px-3 py-2 bg-[#2d2a2e] border border-[#5b595c] rounded-lg text-[#fcfcfa] placeholder-[#5b595c] focus:outline-none focus:border-[#ffd866] resize-none"
                 />
               </div>
+
+              {!isNew && (
+                <label className="flex items-center gap-2 text-sm text-[#fcfcfa] cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={openNavigation}
+                    onChange={(e) => setOpenNavigation(e.target.checked)}
+                    className="accent-[#ffd866]"
+                  />
+                  Open navigation (all lessons unlocked; no linear gating)
+                </label>
+              )}
 
               <button
                 onClick={handleSave}
