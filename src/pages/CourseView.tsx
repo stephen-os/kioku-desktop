@@ -8,6 +8,9 @@ import {
   recordLessonProgress,
   clearLessonItemProgress,
   linkCourseItems,
+  adoptCourseDeck,
+  adoptCourseQuiz,
+  adoptCoursePage,
 } from "@/lib/db";
 import { FavoriteButton, BackButton } from "@/components";
 import { useToast } from "@/context/ToastContext";
@@ -80,6 +83,19 @@ export function CourseView() {
       loadCourse();
     } catch (error) {
       toast.error("Failed to update favorite");
+    }
+  };
+
+  const handleAdopt = async (item: LessonItem): Promise<void> => {
+    if (!item.itemId) return;
+    try {
+      if (item.itemType === "deck") await adoptCourseDeck(item.itemId);
+      else if (item.itemType === "quiz") await adoptCourseQuiz(item.itemId);
+      else await adoptCoursePage(item.itemId);
+      toast.success("Saved a personal copy to your library");
+    } catch (error) {
+      console.error("Failed to adopt item:", error);
+      toast.error("Failed to save a copy");
     }
   };
 
@@ -335,6 +351,7 @@ export function CourseView() {
                   isExpanded={expandedLessons.has(lesson.id)}
                   onToggle={() => toggleLesson(lesson.id)}
                   onToggleItemComplete={(item) => handleToggleItemComplete(lesson, item)}
+                  onAdopt={handleAdopt}
                 />
               ))}
             </div>
@@ -353,9 +370,10 @@ interface LessonSectionProps {
   isExpanded: boolean;
   onToggle: () => void;
   onToggleItemComplete: (item: LessonItem) => void;
+  onAdopt: (item: LessonItem) => void;
 }
 
-function LessonSection({ lesson, lessonIndex, courseId, isLocked, isExpanded, onToggle, onToggleItemComplete }: LessonSectionProps) {
+function LessonSection({ lesson, lessonIndex, courseId, isLocked, isExpanded, onToggle, onToggleItemComplete, onAdopt }: LessonSectionProps) {
   const itemCount = lesson.items.length;
   const completedItemCount = lesson.completedItemCount ?? 0;
 
@@ -429,6 +447,7 @@ function LessonSection({ lesson, lessonIndex, courseId, isLocked, isExpanded, on
                   lessonId={lesson.id}
                   isLocked={isLocked}
                   onToggleComplete={() => onToggleItemComplete(item)}
+                  onAdopt={() => onAdopt(item)}
                 />
               ))}
             </div>
@@ -446,9 +465,10 @@ interface LessonItemCardProps {
   lessonId: string;
   isLocked: boolean;
   onToggleComplete: () => void;
+  onAdopt: () => void;
 }
 
-function LessonItemCard({ item, index, courseId, lessonId, isLocked, onToggleComplete }: LessonItemCardProps) {
+function LessonItemCard({ item, index, courseId, lessonId, isLocked, onToggleComplete, onAdopt }: LessonItemCardProps) {
   const isDeck = item.itemType === "deck";
   const isMissing = item.isMissing ?? false;
   const typeLabel = isMissing ? "Missing" : isDeck ? "Deck" : item.itemType === "quiz" ? "Quiz" : "Note";
@@ -565,16 +585,25 @@ function LessonItemCard({ item, index, courseId, lessonId, isLocked, onToggleCom
           </span>
         )}
         {!isMissing && !isLocked && (
-          <Link
-            to={studyPath}
-            className={`px-2 py-1 text-xs rounded transition-colors font-medium ${
-              isDeck
-                ? "bg-[#a9dc76]/20 text-[#a9dc76] hover:bg-[#a9dc76]/30"
-                : "bg-[#ab9df2]/20 text-[#ab9df2] hover:bg-[#ab9df2]/30"
-            }`}
-          >
-            {actionLabel}
-          </Link>
+          <>
+            <button
+              onClick={onAdopt}
+              title="Save a personal, editable copy to your library"
+              className="px-2 py-1 text-xs text-[#939293] hover:text-[#fcfcfa] hover:bg-[#5b595c] rounded transition-colors"
+            >
+              Save copy
+            </button>
+            <Link
+              to={studyPath}
+              className={`px-2 py-1 text-xs rounded transition-colors font-medium ${
+                isDeck
+                  ? "bg-[#a9dc76]/20 text-[#a9dc76] hover:bg-[#a9dc76]/30"
+                  : "bg-[#ab9df2]/20 text-[#ab9df2] hover:bg-[#ab9df2]/30"
+              }`}
+            >
+              {actionLabel}
+            </Link>
+          </>
         )}
         {isMissing && (
           <Link
