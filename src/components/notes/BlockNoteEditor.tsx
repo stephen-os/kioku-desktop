@@ -5,12 +5,22 @@ import { useCreateBlockNote } from "@blocknote/react";
 import { BlockNoteView } from "@blocknote/mantine";
 import "@blocknote/mantine/style.css";
 import "./blocknote-kioku.css";
+import { replaceLinks } from "@/lib/linkParser";
 
 interface BlockNoteEditorProps {
   initialContent: string; // JSON string of blocks, markdown, or empty
   onChange: (content: string) => void;
   onSave?: () => void;
   editable?: boolean; // false => read-only (course note reference content)
+  /** Clicking a [[wiki link]] calls this with the target page title. */
+  onWikiLink?: (title: string) => void;
+}
+
+// Turn [[Title]] / [[Title|Display]] into markdown links whose href stays the
+// literal [[Title]] — so BlockNote renders a clickable link while the stored
+// content still contains [[Title]] for backlink matching.
+function preprocessWikiLinks(markdown: string): string {
+  return replaceLinks(markdown, (l) => `[${l.display}]([[${l.title}]])`);
 }
 
 // Check if content looks like JSON (BlockNote format)
@@ -33,16 +43,18 @@ async function fileToDataUrl(file: File): Promise<string> {
 }
 
 
-export function NotesBlockEditor({ initialContent, onChange, onSave, editable = true }: BlockNoteEditorProps) {
+export function NotesBlockEditor({ initialContent, onChange, onSave, editable = true, onWikiLink }: BlockNoteEditorProps) {
   const onChangeRef = useRef(onChange);
   const onSaveRef = useRef(onSave);
+  const onWikiLinkRef = useRef(onWikiLink);
   const [isReady, setIsReady] = useState(false);
 
   // Keep refs updated
   useEffect(() => {
     onChangeRef.current = onChange;
     onSaveRef.current = onSave;
-  }, [onChange, onSave]);
+    onWikiLinkRef.current = onWikiLink;
+  }, [onChange, onSave, onWikiLink]);
 
   // Parse initial content - either JSON blocks or legacy markdown
   const { initialBlocks, hasMarkdown } = useMemo(() => {
@@ -89,7 +101,7 @@ export function NotesBlockEditor({ initialContent, onChange, onSave, editable = 
 
     const convertMarkdown = async () => {
       try {
-        const blocks = await editor.tryParseMarkdownToBlocks(initialContent);
+        const blocks = await editor.tryParseMarkdownToBlocks(preprocessWikiLinks(initialContent));
         editor.replaceBlocks(editor.document, blocks);
         // Trigger a save with the converted content
         const content = JSON.stringify(editor.document);
@@ -132,8 +144,21 @@ export function NotesBlockEditor({ initialContent, onChange, onSave, editable = 
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, []);
 
+  // Intercept clicks on [[wiki links]] (href kept as the literal "[[Title]]")
+  // and route them to onWikiLink instead of letting the browser navigate.
+  const handleClickCapture = (e: React.MouseEvent) => {
+    const anchor = (e.target as HTMLElement).closest("a");
+    const href = anchor?.getAttribute("href") ?? "";
+    if (href.startsWith("[[") && href.endsWith("]]")) {
+      e.preventDefault();
+      e.stopPropagation();
+      const title = href.slice(2, -2).split("|")[0].trim();
+      if (title) onWikiLinkRef.current?.(title);
+    }
+  };
+
   return (
-    <div className="blocknote-editor-wrapper h-full overflow-auto">
+    <div className="blocknote-editor-wrapper h-full overflow-auto" onClickCapture={handleClickCapture}>
       <BlockNoteView
         editor={editor}
         editable={editable}

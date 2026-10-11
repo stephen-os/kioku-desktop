@@ -11,6 +11,7 @@ import {
   togglePagePin,
   duplicatePage,
   movePage,
+  getAllPageTitles,
 } from "@/lib/db";
 import { LoadingSpinner } from "@/components";
 import { useToast } from "@/context/ToastContext";
@@ -296,6 +297,21 @@ export function NotebookView() {
     navigate(`/notes/${targetNotebookId}/pages/${targetPageId}`);
   }, [navigate]);
 
+  // Open a [[wiki link]] by page title (exact, case-insensitive) in the notes view.
+  const handleWikiLink = useCallback(async (title: string) => {
+    try {
+      const allPages = await getAllPageTitles();
+      const match = allPages.find((p) => p.title.toLowerCase() === title.toLowerCase());
+      if (match) {
+        navigate(`/notes/${match.notebookId}/pages/${match.id}`);
+      } else {
+        toast.info(`No note titled "${title}"`);
+      }
+    } catch {
+      toast.error("Failed to open link");
+    }
+  }, [navigate, toast]);
+
   if (loading) {
     return <LoadingSpinner />;
   }
@@ -374,6 +390,7 @@ export function NotebookView() {
                   initialContent={selectedPage.content}
                   onChange={setPageContent}
                   onSave={handleSavePage}
+                  onWikiLink={handleWikiLink}
                 />
               </div>
 
