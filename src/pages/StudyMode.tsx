@@ -285,28 +285,32 @@ export function StudyMode() {
     speak(textForSpeech(content, type), currentCard.ttsLang ?? "en", { voice: "", volume: 1 });
   };
 
+  // True only when a flashcard is actually on screen (not the tag-filter or
+  // completion screens). Audio must never play unless this holds.
+  const viewingCard = studyStarted && !showTagFilter && !studyComplete && !!currentCard;
+
   // Stop any audio when the shown side changes (flip or advance); if auto-read is
-  // on, read the newly-shown side. This is also what prevents the previous clip
-  // from bleeding into the next card.
+  // on and a card is on screen, read the newly-shown side. The unconditional stop
+  // also prevents the previous clip from bleeding into the next card or screen.
   useEffect(() => {
     stopSpeaking();
-    if (!autoRead || studyComplete || !currentCard) return;
-    const content = isFlipped ? currentCard.back : currentCard.front;
-    const type = isFlipped ? currentCard.backType : currentCard.frontType;
-    speak(textForSpeech(content, type), currentCard.ttsLang ?? "en", { voice: "", volume: 1 });
-  }, [currentIndex, isFlipped, autoRead, studyComplete, currentCard]);
+    if (!viewingCard || !autoRead) return;
+    const content = isFlipped ? currentCard!.back : currentCard!.front;
+    const type = isFlipped ? currentCard!.backType : currentCard!.frontType;
+    speak(textForSpeech(content, type), currentCard!.ttsLang ?? "en", { voice: "", volume: 1 });
+  }, [currentIndex, isFlipped, autoRead, viewingCard, currentCard]);
 
   // Stop audio when leaving study mode.
   useEffect(() => () => stopSpeaking(), []);
 
   // Pre-generate (cache) the current card's back and the next card's front so a
-  // flip or Next plays instantly. Best-effort; respects the engine being present.
+  // flip or Next plays instantly. Only while viewing a card. Best-effort.
   useEffect(() => {
-    if (!currentCard) return;
-    prefetchTts(textForSpeech(currentCard.back, currentCard.backType), currentCard.ttsLang ?? "en");
+    if (!viewingCard) return;
+    prefetchTts(textForSpeech(currentCard!.back, currentCard!.backType), currentCard!.ttsLang ?? "en");
     const next = cards[currentIndex + 1];
     if (next) prefetchTts(textForSpeech(next.front, next.frontType), next.ttsLang ?? "en");
-  }, [currentIndex, currentCard, cards]);
+  }, [currentIndex, viewingCard, currentCard, cards]);
 
   const handleFlip = useCallback(() => {
     if (!isAnimating) {
@@ -668,18 +672,7 @@ export function StudyMode() {
                 {studyComplete ? "Complete!" : `Card ${currentIndex + 1} of ${cards.length}`}
               </p>
             </div>
-            <div className="w-24 flex justify-end">
-              <button
-                onClick={handleSpeak}
-                title="Read this side aloud"
-                aria-label="Read this side aloud"
-                className="p-2 text-[#78dce8] hover:text-[#ffd866] hover:bg-[#5b595c]/30 rounded-lg transition-colors"
-              >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.536 8.464a5 5 0 010 7.072M17.95 6.05a8 8 0 010 11.9M11 5L6 9H2v6h4l5 4V5z" />
-                </svg>
-              </button>
-            </div>
+            <div className="w-24" /> {/* Spacer for centering */}
           </div>
         </div>
       </div>
@@ -886,12 +879,24 @@ export function StudyMode() {
                 Previous
               </button>
 
-              <button
-                onClick={handleFlip}
-                className="px-8 py-3 bg-[#ffd866] text-[#2d2a2e] rounded-lg hover:bg-[#ffd866]/90 font-medium transition-colors"
-              >
-                {isFlipped ? "Hide" : "Show"} Answer
-              </button>
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={handleFlip}
+                  className="px-8 py-3 bg-[#ffd866] text-[#2d2a2e] rounded-lg hover:bg-[#ffd866]/90 font-medium transition-colors"
+                >
+                  {isFlipped ? "Hide" : "Show"} Answer
+                </button>
+                <button
+                  onClick={handleSpeak}
+                  title="Read this side aloud"
+                  aria-label="Read this side aloud"
+                  className="p-3 bg-[#78dce8] text-[#2d2a2e] rounded-lg hover:bg-[#78dce8]/90 transition-colors"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.536 8.464a5 5 0 010 7.072M17.95 6.05a8 8 0 010 11.9M11 5L6 9H2v6h4l5 4V5z" />
+                  </svg>
+                </button>
+              </div>
 
               <button
                 onClick={handleNext}
