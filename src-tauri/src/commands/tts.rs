@@ -105,7 +105,18 @@ fn apply_model_env(cmd: &mut Command, app: &AppHandle, offline: bool) -> Result<
 }
 
 /// Path to the engine executable (`.exe` on Windows) under the engine dir.
+///
+/// Dev override: if `KIOKU_TTS_ENGINE` points at an existing executable (e.g.
+/// `melotts/dist/kioku-tts/kioku-tts.exe`), use it. This lets `tauri:dev` run
+/// the real frozen engine without the install flow. The var is unset in
+/// production, so release builds always use the installed engine.
 fn get_engine_exe(app: &AppHandle) -> Result<PathBuf, String> {
+    if let Ok(custom) = std::env::var("KIOKU_TTS_ENGINE") {
+        let path = PathBuf::from(custom);
+        if path.is_file() {
+            return Ok(path);
+        }
+    }
     let exe_name = if cfg!(windows) {
         "kioku-tts.exe"
     } else {
