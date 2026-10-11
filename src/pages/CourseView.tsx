@@ -47,9 +47,16 @@ export function CourseView() {
     try {
       const courseData = await getCourseWithLessons(id);
       setCourse(courseData);
-      // Expand all lessons by default
+      // Expand unlocked lessons by default; locked ones start collapsed.
       if (courseData) {
-        setExpandedLessons(new Set(courseData.lessons.map(l => l.id)));
+        const ls = courseData.lessons ?? [];
+        const openByDefault = ls
+          .filter(
+            (_, i) =>
+              courseData.openNavigation || !ls.slice(0, i).some((l) => !l.isCompleted)
+          )
+          .map((l) => l.id);
+        setExpandedLessons(new Set(openByDefault));
       }
     } catch (error) {
       console.error("Failed to load course:", error);
@@ -385,7 +392,9 @@ function LessonSection({ lesson, lessonIndex, courseId, isLocked, isExpanded, on
       {/* Lesson Header */}
       <button
         onClick={onToggle}
-        className="w-full px-5 py-4 flex items-center gap-4 hover:bg-[#5b595c]/20 transition-colors"
+        className={`w-full px-5 py-4 flex items-center gap-4 transition-colors ${
+          lesson.isCompleted ? "bg-[#a9dc76]/10 hover:bg-[#a9dc76]/20" : "hover:bg-[#5b595c]/20"
+        }`}
       >
         <div className="flex items-center gap-3">
           <span className="text-lg font-mono text-[#939293]">{lessonIndex + 1}</span>
@@ -476,6 +485,12 @@ function LessonItemCard({ item, index, courseId, lessonId, isLocked, onToggleCom
   const isMissing = item.isMissing ?? false;
   const typeLabel = isMissing ? "Missing" : isDeck ? "Deck" : item.itemType === "quiz" ? "Quiz" : "Note";
   const actionLabel = isDeck ? "Study" : item.itemType === "quiz" ? "Take" : "Read";
+  // A quiz's best score counts as "passed" when it meets the min-score gate.
+  const quizPassed =
+    item.requirementType === "min_score" &&
+    item.requirementValue != null &&
+    item.bestScore != null &&
+    item.bestScore >= item.requirementValue;
   // Launches in course context (records progress, returns to course).
   const studyPath = courseLaunchUrl(courseId, lessonId, item);
 
@@ -559,9 +574,6 @@ function LessonItemCard({ item, index, courseId, lessonId, isLocked, onToggleCom
           {item.isCompleted && (
             <span className="text-xs text-[#a9dc76]">Completed</span>
           )}
-          {item.bestScore !== undefined && item.bestScore !== null && (
-            <span className="text-xs text-[#939293]">Best: {item.bestScore}%</span>
-          )}
         </div>
         <h4 className={`text-sm font-medium truncate ${
           isMissing
@@ -574,6 +586,18 @@ function LessonItemCard({ item, index, courseId, lessonId, isLocked, onToggleCom
         </h4>
         {requirementText && (
           <p className="text-xs text-[#939293] mt-0.5">{requirementText}</p>
+        )}
+        {item.itemType === "quiz" && !isMissing && (
+          <p className="text-xs mt-0.5">
+            <span className="text-[#6b696b]">Best score: </span>
+            {item.bestScore != null ? (
+              <span className={quizPassed ? "text-[#a9dc76]" : "text-[#ffd866]"}>
+                {item.bestScore}%{quizPassed ? " · Passed" : ""}
+              </span>
+            ) : (
+              <span className="text-[#939293]">not attempted yet</span>
+            )}
+          </p>
         )}
       </div>
 

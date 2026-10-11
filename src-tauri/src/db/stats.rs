@@ -241,7 +241,8 @@ pub fn get_quiz_attempts(conn: &Connection, quiz_id: &str) -> Result<Vec<QuizAtt
         .prepare(
             "SELECT id, quiz_id, started_at, completed_at, duration_seconds,
              total_questions, correct_answers, score_percentage
-             FROM quiz_attempts WHERE quiz_id = ?1 ORDER BY started_at DESC",
+             FROM quiz_attempts WHERE quiz_id = ?1 AND completed_at IS NOT NULL
+             ORDER BY started_at DESC",
         )
         .map_err(|e| format!("Failed to prepare query: {}", e))?;
 
