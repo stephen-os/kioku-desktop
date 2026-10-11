@@ -4,6 +4,7 @@
 // Choice/Page) so the study, quiz, and notes engines work on them unchanged.
 
 use rusqlite::{params, Connection};
+use uuid::Uuid;
 
 use super::models::{Card, Choice, Deck, Page, Question, QuestionType, Quiz};
 
@@ -186,4 +187,372 @@ pub fn get_course_page(conn: &Connection, id: &str) -> Result<Page, String> {
         },
     )
     .map_err(|e| format!("Course page not found: {}", e))
+}
+
+// ============================================
+// Create (authoring / reseed)
+// ============================================
+
+pub fn create_course_deck(
+    conn: &Connection,
+    course_id: &str,
+    name: &str,
+    description: Option<&str>,
+    shuffle_cards: bool,
+) -> Result<String, String> {
+    let id = Uuid::new_v4().to_string();
+    let now = chrono::Utc::now().to_rfc3339();
+    conn.execute(
+        "INSERT INTO course_decks (id, course_id, name, description, shuffle_cards, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6)",
+        params![id, course_id, name, description, shuffle_cards as i32, now],
+    )
+    .map_err(|e| format!("Failed to create course deck: {}", e))?;
+    Ok(id)
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn create_course_card(
+    conn: &Connection,
+    course_deck_id: &str,
+    front: &str,
+    front_type: &str,
+    front_language: Option<&str>,
+    back: &str,
+    back_type: &str,
+    back_language: Option<&str>,
+    notes: Option<&str>,
+    front_tts_lang: Option<&str>,
+    back_tts_lang: Option<&str>,
+) -> Result<String, String> {
+    let id = Uuid::new_v4().to_string();
+    let now = chrono::Utc::now().to_rfc3339();
+    conn.execute(
+        "INSERT INTO course_cards (id, course_deck_id, front, front_type, front_language,
+            back, back_type, back_language, notes, front_tts_lang, back_tts_lang, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?12)",
+        params![
+            id, course_deck_id, front, front_type, front_language,
+            back, back_type, back_language, notes, front_tts_lang, back_tts_lang, now
+        ],
+    )
+    .map_err(|e| format!("Failed to create course card: {}", e))?;
+    Ok(id)
+}
+
+pub fn create_course_quiz(
+    conn: &Connection,
+    course_id: &str,
+    name: &str,
+    description: Option<&str>,
+    shuffle_questions: bool,
+) -> Result<String, String> {
+    let id = Uuid::new_v4().to_string();
+    let now = chrono::Utc::now().to_rfc3339();
+    conn.execute(
+        "INSERT INTO course_quizzes (id, course_id, name, description, shuffle_questions, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6)",
+        params![id, course_id, name, description, shuffle_questions as i32, now],
+    )
+    .map_err(|e| format!("Failed to create course quiz: {}", e))?;
+    Ok(id)
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn create_course_question(
+    conn: &Connection,
+    course_quiz_id: &str,
+    question_type: &str,
+    content: &str,
+    content_type: &str,
+    content_language: Option<&str>,
+    correct_answer: Option<&str>,
+    multiple_answers: bool,
+    explanation: Option<&str>,
+    position: i32,
+) -> Result<String, String> {
+    let id = Uuid::new_v4().to_string();
+    let now = chrono::Utc::now().to_rfc3339();
+    conn.execute(
+        "INSERT INTO course_questions (id, course_quiz_id, question_type, content, content_type,
+            content_language, correct_answer, multiple_answers, explanation, position, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?11)",
+        params![
+            id, course_quiz_id, question_type, content, content_type,
+            content_language, correct_answer, multiple_answers as i32, explanation, position, now
+        ],
+    )
+    .map_err(|e| format!("Failed to create course question: {}", e))?;
+    Ok(id)
+}
+
+pub fn create_course_choice(
+    conn: &Connection,
+    course_question_id: &str,
+    text: &str,
+    is_correct: bool,
+    position: i32,
+) -> Result<String, String> {
+    let id = Uuid::new_v4().to_string();
+    conn.execute(
+        "INSERT INTO course_choices (id, course_question_id, text, is_correct, position)
+         VALUES (?1, ?2, ?3, ?4, ?5)",
+        params![id, course_question_id, text, is_correct as i32, position],
+    )
+    .map_err(|e| format!("Failed to create course choice: {}", e))?;
+    Ok(id)
+}
+
+pub fn create_course_notebook(
+    conn: &Connection,
+    course_id: &str,
+    name: &str,
+    description: Option<&str>,
+) -> Result<String, String> {
+    let id = Uuid::new_v4().to_string();
+    let now = chrono::Utc::now().to_rfc3339();
+    conn.execute(
+        "INSERT INTO course_notebooks (id, course_id, name, description, icon, color, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, 'notebook', NULL, ?5, ?5)",
+        params![id, course_id, name, description, now],
+    )
+    .map_err(|e| format!("Failed to create course notebook: {}", e))?;
+    Ok(id)
+}
+
+pub fn create_course_page(
+    conn: &Connection,
+    course_notebook_id: &str,
+    title: &str,
+    content: &str,
+    position: i32,
+) -> Result<String, String> {
+    let id = Uuid::new_v4().to_string();
+    let now = chrono::Utc::now().to_rfc3339();
+    conn.execute(
+        "INSERT INTO course_pages (id, course_notebook_id, title, content, position, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6)",
+        params![id, course_notebook_id, title, content, position, now],
+    )
+    .map_err(|e| format!("Failed to create course page: {}", e))?;
+    Ok(id)
+}
+
+// ============================================
+// Copy library content INTO a course (authoring: "copy from library")
+// ============================================
+
+pub fn copy_deck_to_course(
+    conn: &Connection,
+    course_id: &str,
+    deck_id: &str,
+) -> Result<String, String> {
+    let (name, description, shuffle): (String, Option<String>, i32) = conn
+        .query_row(
+            "SELECT name, description, shuffle_cards FROM decks WHERE id = ?1",
+            params![deck_id],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )
+        .map_err(|e| format!("Library deck not found: {}", e))?;
+
+    let new_deck = create_course_deck(conn, course_id, &name, description.as_deref(), shuffle != 0)?;
+
+    let cards = super::decks::get_cards_for_deck(conn, deck_id)?;
+    for c in cards {
+        create_course_card(
+            conn,
+            &new_deck,
+            &c.front,
+            &c.front_type,
+            c.front_language.as_deref(),
+            &c.back,
+            &c.back_type,
+            c.back_language.as_deref(),
+            c.notes.as_deref(),
+            c.front_tts_lang.as_deref(),
+            c.back_tts_lang.as_deref(),
+        )?;
+    }
+    Ok(new_deck)
+}
+
+pub fn copy_quiz_to_course(
+    conn: &Connection,
+    course_id: &str,
+    quiz_id: &str,
+) -> Result<String, String> {
+    let (name, description, shuffle): (String, Option<String>, i32) = conn
+        .query_row(
+            "SELECT name, description, shuffle_questions FROM quizzes WHERE id = ?1",
+            params![quiz_id],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )
+        .map_err(|e| format!("Library quiz not found: {}", e))?;
+
+    let new_quiz = create_course_quiz(conn, course_id, &name, description.as_deref(), shuffle != 0)?;
+
+    let questions = super::quizzes::get_questions_for_quiz(conn, quiz_id)?;
+    for q in questions {
+        let new_q = create_course_question(
+            conn,
+            &new_quiz,
+            q.question_type.as_str(),
+            &q.content,
+            &q.content_type,
+            q.content_language.as_deref(),
+            q.correct_answer.as_deref(),
+            q.multiple_answers,
+            q.explanation.as_deref(),
+            q.position,
+        )?;
+        for ch in q.choices {
+            create_course_choice(conn, &new_q, &ch.text, ch.is_correct, ch.position)?;
+        }
+    }
+    Ok(new_quiz)
+}
+
+/// Copy a library page into the course as a standalone note (its own notebook).
+pub fn copy_page_to_course(
+    conn: &Connection,
+    course_id: &str,
+    page_id: &str,
+) -> Result<String, String> {
+    let (title, content): (String, String) = conn
+        .query_row(
+            "SELECT title, content FROM pages WHERE id = ?1",
+            params![page_id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .map_err(|e| format!("Library page not found: {}", e))?;
+
+    let notebook = create_course_notebook(conn, course_id, &title, None)?;
+    create_course_page(conn, &notebook, &title, &content, 0)
+}
+
+// ============================================
+// Adopt: copy course-owned content OUT to the personal library
+// ============================================
+
+pub fn adopt_course_deck(
+    conn: &Connection,
+    user_id: &str,
+    course_deck_id: &str,
+) -> Result<String, String> {
+    let deck = get_course_deck(conn, course_deck_id)?;
+    let cards = get_course_cards(conn, course_deck_id)?;
+
+    let new_id = Uuid::new_v4().to_string();
+    let now = chrono::Utc::now().to_rfc3339();
+    conn.execute(
+        "INSERT INTO decks (id, user_id, name, description, shuffle_cards, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6)",
+        params![new_id, user_id, deck.name, deck.description, deck.shuffle_cards as i32, now],
+    )
+    .map_err(|e| format!("Failed to adopt deck: {}", e))?;
+
+    for c in cards {
+        let card_id = Uuid::new_v4().to_string();
+        conn.execute(
+            "INSERT INTO cards (id, deck_id, front, front_type, front_language, back, back_type,
+                back_language, notes, front_tts_lang, back_tts_lang, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?12)",
+            params![
+                card_id, new_id, c.front, c.front_type, c.front_language, c.back, c.back_type,
+                c.back_language, c.notes, c.front_tts_lang, c.back_tts_lang, now
+            ],
+        )
+        .map_err(|e| format!("Failed to adopt card: {}", e))?;
+    }
+    Ok(new_id)
+}
+
+pub fn adopt_course_quiz(
+    conn: &Connection,
+    user_id: &str,
+    course_quiz_id: &str,
+) -> Result<String, String> {
+    let quiz = get_course_quiz(conn, course_quiz_id)?;
+
+    let new_id = Uuid::new_v4().to_string();
+    let now = chrono::Utc::now().to_rfc3339();
+    conn.execute(
+        "INSERT INTO quizzes (id, user_id, name, description, shuffle_questions, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6)",
+        params![new_id, user_id, quiz.name, quiz.description, quiz.shuffle_questions as i32, now],
+    )
+    .map_err(|e| format!("Failed to adopt quiz: {}", e))?;
+
+    for q in quiz.questions {
+        let qid = Uuid::new_v4().to_string();
+        conn.execute(
+            "INSERT INTO questions (id, quiz_id, question_type, content, content_type, content_language,
+                correct_answer, multiple_answers, explanation, position, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?11)",
+            params![
+                qid, new_id, q.question_type.as_str(), q.content, q.content_type, q.content_language,
+                q.correct_answer, q.multiple_answers as i32, q.explanation, q.position, now
+            ],
+        )
+        .map_err(|e| format!("Failed to adopt question: {}", e))?;
+        for ch in q.choices {
+            let cid = Uuid::new_v4().to_string();
+            conn.execute(
+                "INSERT INTO choices (id, question_id, text, is_correct, position)
+                 VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![cid, qid, ch.text, ch.is_correct as i32, ch.position],
+            )
+            .map_err(|e| format!("Failed to adopt choice: {}", e))?;
+        }
+    }
+    Ok(new_id)
+}
+
+/// Adopt a course page into a new personal notebook holding that single page.
+pub fn adopt_course_page(
+    conn: &Connection,
+    user_id: &str,
+    course_page_id: &str,
+) -> Result<String, String> {
+    let page = get_course_page(conn, course_page_id)?;
+
+    let nb_id = Uuid::new_v4().to_string();
+    let now = chrono::Utc::now().to_rfc3339();
+    conn.execute(
+        "INSERT INTO notebooks (id, user_id, name, description, icon, color, created_at, updated_at)
+         VALUES (?1, ?2, ?3, NULL, 'notebook', NULL, ?4, ?4)",
+        params![nb_id, user_id, page.title, now],
+    )
+    .map_err(|e| format!("Failed to adopt note: {}", e))?;
+
+    let page_id = Uuid::new_v4().to_string();
+    conn.execute(
+        "INSERT INTO pages (id, notebook_id, title, content, position, is_pinned, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, 0, 0, ?5, ?5)",
+        params![page_id, nb_id, page.title, page.content, now],
+    )
+    .map_err(|e| format!("Failed to adopt note page: {}", e))?;
+    Ok(nb_id)
+}
+
+// ============================================
+// Delete course-owned content (removing a lesson item's content / editing)
+// ============================================
+
+pub fn delete_course_deck(conn: &Connection, id: &str) -> Result<(), String> {
+    conn.execute("DELETE FROM course_decks WHERE id = ?1", params![id])
+        .map_err(|e| format!("Failed to delete course deck: {}", e))?;
+    Ok(())
+}
+
+pub fn delete_course_quiz(conn: &Connection, id: &str) -> Result<(), String> {
+    conn.execute("DELETE FROM course_quizzes WHERE id = ?1", params![id])
+        .map_err(|e| format!("Failed to delete course quiz: {}", e))?;
+    Ok(())
+}
+
+pub fn delete_course_notebook(conn: &Connection, id: &str) -> Result<(), String> {
+    conn.execute("DELETE FROM course_notebooks WHERE id = ?1", params![id])
+        .map_err(|e| format!("Failed to delete course notebook: {}", e))?;
+    Ok(())
 }

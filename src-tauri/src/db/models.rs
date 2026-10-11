@@ -73,6 +73,13 @@ impl QuestionType {
             _ => QuestionType::MultipleChoice,
         }
     }
+
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            QuestionType::MultipleChoice => "multiple_choice",
+            QuestionType::FillInBlank => "fill_in_blank",
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

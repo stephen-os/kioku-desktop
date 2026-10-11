@@ -388,6 +388,33 @@ export async function getCoursePage(coursePageId: string): Promise<Page> {
   return invoke<Page>("get_course_page", { coursePageId });
 }
 
+// Authoring: create a lesson item backed by course-owned content (copied from
+// the library or blank-authored).
+export async function courseAddItem(args: {
+  lessonId: string;
+  itemType: "deck" | "quiz" | "note";
+  mode: "library" | "blank";
+  sourceId?: string;
+  name: string;
+  requirementType?: string;
+  requirementValue?: number;
+}): Promise<LessonItem> {
+  return invoke<LessonItem>("course_add_item", args);
+}
+
+// Adopt: copy course-owned content into the personal library.
+export async function adoptCourseDeck(courseDeckId: string): Promise<string> {
+  return invoke<string>("adopt_course_deck", { courseDeckId });
+}
+
+export async function adoptCourseQuiz(courseQuizId: string): Promise<string> {
+  return invoke<string>("adopt_course_quiz", { courseQuizId });
+}
+
+export async function adoptCoursePage(coursePageId: string): Promise<string> {
+  return invoke<string>("adopt_course_page", { coursePageId });
+}
+
 export async function linkCourseItems(courseId: string): Promise<LinkItemsResult> {
   return invoke<LinkItemsResult>("link_course_items", { courseId });
 }

@@ -28,8 +28,13 @@ pub use courses::{
     toggle_course_favorite, update_course,
 };
 
-// Course-owned content operations (read loaders; create fns land with authoring)
-pub use course_content::{get_course_cards, get_course_deck, get_course_page, get_course_quiz};
+// Course-owned content operations
+pub use course_content::{
+    adopt_course_deck, adopt_course_page, adopt_course_quiz, copy_deck_to_course,
+    copy_page_to_course, copy_quiz_to_course, create_course_deck, create_course_notebook,
+    create_course_page, create_course_quiz, delete_course_deck, delete_course_notebook,
+    delete_course_quiz, get_course_cards, get_course_deck, get_course_page, get_course_quiz,
+};
 
 // Lesson operations
 pub use courses::{
