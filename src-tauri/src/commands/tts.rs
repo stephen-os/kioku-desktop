@@ -746,6 +746,18 @@ pub fn tts_gc(app: AppHandle, state: State<DbState>) -> Result<u64, String> {
     Ok(removed)
 }
 
+/// Delete ALL cached audio (the user's "clear cached audio" action). Installed
+/// models are kept; the crawler re-bakes as needed.
+#[tauri::command]
+pub fn clear_tts_cache(app: AppHandle) -> Result<(), String> {
+    let cache = get_cache_dir(&app)?;
+    if cache.exists() {
+        fs::remove_dir_all(&cache).map_err(|e| format!("Failed to clear audio cache: {}", e))?;
+    }
+    fs::create_dir_all(&cache).map_err(|e| format!("Failed to recreate cache dir: {}", e))?;
+    Ok(())
+}
+
 /// Synthesize `text` in `lang` to a cached WAV and return its absolute path.
 /// Returns cached audio immediately when present; otherwise requires the engine
 /// to be installed (errors if not, so the front end can fall back to Web Speech).

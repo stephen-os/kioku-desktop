@@ -8,6 +8,7 @@ import { getDeck, getCardsForDeck, getTagsForDeck, deleteDeck, exportDeck, getDe
 import { isTauri } from "@/lib/auth";
 import { CodeBlock } from "@/components/CodeEditor";
 import { BackButton } from "@/components";
+import { useDeckTtsStatus } from "@/hooks";
 import { useToast } from "@/context/ToastContext";
 import { getDeckFilename } from "@/lib/slug";
 import { formatDuration } from "@/lib/utils";
@@ -47,6 +48,7 @@ function formatDate(dateString: string | null): string {
 
 export function DeckView() {
   const { id } = useParams<{ id: string }>();
+  const ttsStatus = useDeckTtsStatus(id);
   const navigate = useNavigate();
   const toast = useToast();
   const [deck, setDeck] = useState<Deck | null>(null);
@@ -351,6 +353,12 @@ export function DeckView() {
                 <p className="text-[#939293]">
                   {deck.description || "No description"}
                 </p>
+                {ttsStatus && ttsStatus.pending > 0 && (
+                  <p className="mt-2 inline-flex items-center gap-2 text-xs text-[#78dce8]">
+                    <span className="w-3 h-3 border-2 border-[#78dce8] border-t-transparent rounded-full animate-spin" />
+                    Generating audio {ttsStatus.total - ttsStatus.pending}/{ttsStatus.total}
+                  </p>
+                )}
               </div>
 
               <div className="flex gap-2">

@@ -16,6 +16,7 @@ import {
   ViewToggle,
 } from "@/components";
 import { useSearchFilter, useViewMode } from "@/hooks";
+import { startTtsCrawl } from "@/lib/ttsCrawler";
 import { useToast } from "@/context/ToastContext";
 
 const DeckIcon = () => (
@@ -97,6 +98,7 @@ export function DeckDashboard() {
 
     setImporting(false);
     loadData();
+    startTtsCrawl().catch(() => {}); // bake audio for newly-imported cards
   };
 
   const handleFileDrop = useCallback(async (filePaths: string[]): Promise<void> => {

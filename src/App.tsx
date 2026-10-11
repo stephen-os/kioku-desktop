@@ -1,5 +1,7 @@
-import { lazy, Suspense, useState } from "react";
+import { lazy, Suspense, useState, useEffect } from "react";
 import { Routes, Route, Navigate, useNavigate } from "react-router-dom";
+import { isTauri } from "./lib/auth";
+import { startTtsCrawl } from "./lib/ttsCrawler";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import { ToastProvider } from "./context/ToastContext";
 import { SettingsProvider } from "./context/SettingsContext";
@@ -197,10 +199,14 @@ function AppRoutes() {
 }
 
 function App() {
-  // TTS no longer warms models at launch. Audio is pre-generated ("baked") to
-  // WAV files by the background crawler (see docs/TTS-ARCHITECTURE.md), so study
-  // just plays files and no model is loaded here. The crawler is started by the
-  // TTS generation setting, not on every launch.
+  // No model is warmed at launch. Instead, if TTS generation is enabled, kick
+  // the background crawler to bake any pending card audio to WAV files (see
+  // docs/TTS-ARCHITECTURE.md). Study then just plays files — no model resident.
+  useEffect(() => {
+    if (isTauri()) {
+      startTtsCrawl().catch(() => {});
+    }
+  }, []);
 
   return (
     <ErrorBoundary>

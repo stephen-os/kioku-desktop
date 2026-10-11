@@ -160,6 +160,7 @@ pub fn run() {
             commands::tts::tts_deck_status,
             commands::tts::bake_tts,
             commands::tts::tts_gc,
+            commands::tts::clear_tts_cache,
             // Notebook commands
             commands::notebooks::get_all_notebooks,
             commands::notebooks::get_notebook,

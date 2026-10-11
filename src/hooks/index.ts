@@ -6,3 +6,4 @@ export * from "./useUnsavedChanges";
 export * from "./useSidebarState";
 export * from "./useMarkdownOutline";
 export * from "./useViewMode";
+export * from "./useDeckTtsStatus";

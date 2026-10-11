@@ -122,6 +122,11 @@ export async function ttsGc(): Promise<number> {
   return invoke<number>("tts_gc");
 }
 
+/** Delete all cached audio (keeps installed models). */
+export async function clearTtsCache(): Promise<void> {
+  return invoke("clear_tts_cache");
+}
+
 /**
  * Synthesize text to a cached WAV via the MeloTTS engine and return the file path.
  * Throws if the engine is not installed (so callers can fall back to Web Speech).

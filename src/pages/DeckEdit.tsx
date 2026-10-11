@@ -32,6 +32,8 @@ import {
   courseUpdateCard,
   courseDeleteCard,
 } from "@/lib/db";
+import { ttsGc } from "@/lib/tts";
+import { startTtsCrawl } from "@/lib/ttsCrawler";
 import { CodeEditor, CodeBlock } from "@/components/CodeEditor";
 import { useToast } from "@/context/ToastContext";
 
@@ -174,6 +176,7 @@ export function DeckEdit() {
       }
       await loadDeck(id);
       toast.success("Card deleted");
+      ttsGc().catch(() => {}); // sweep audio no longer referenced
     } catch (error) {
       console.error("Failed to delete card:", error);
       toast.error("Failed to delete card");
@@ -201,6 +204,7 @@ export function DeckEdit() {
       }
       await loadDeck(id);
       setShowCardModal(false);
+      startTtsCrawl().catch(() => {}); // bake audio for the new/edited card
     } catch (error) {
       console.error("Failed to save card:", error);
       toast.error("Failed to save card");
