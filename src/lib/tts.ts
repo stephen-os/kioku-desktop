@@ -65,6 +65,22 @@ export async function getTtsStorageSize(): Promise<number> {
 }
 
 /**
+ * The language voices currently installed on disk.
+ */
+export async function getInstalledTtsLangs(): Promise<string[]> {
+  return invoke<string[]>("get_installed_tts_langs");
+}
+
+/**
+ * Download the given language voice models from Hugging Face. This is the only
+ * code path that touches the network for models — study/baking never download.
+ * Listen to 'tts-download-progress' for progress.
+ */
+export async function downloadTtsModels(langs: string[]): Promise<void> {
+  return invoke("download_tts_models", { langs });
+}
+
+/**
  * Synthesize text to a cached WAV via the MeloTTS engine and return the file path.
  * Throws if the engine is not installed (so callers can fall back to Web Speech).
  */

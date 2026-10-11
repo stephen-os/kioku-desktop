@@ -1,8 +1,5 @@
-import { lazy, Suspense, useState, useEffect } from "react";
+import { lazy, Suspense, useState } from "react";
 import { Routes, Route, Navigate, useNavigate } from "react-router-dom";
-import { ttsWarmup, warmUsedLanguages } from "./lib/tts";
-import { getUsedTtsLangs } from "./lib/db";
-import { isTauri } from "./lib/auth";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import { ToastProvider } from "./context/ToastContext";
 import { SettingsProvider } from "./context/SettingsContext";
@@ -200,22 +197,10 @@ function AppRoutes() {
 }
 
 function App() {
-  // Warm up TTS in the background at launch: start the daemon + preload English
-  // first (the common case), then preload the other languages the user's cards
-  // actually use so the first Listen in each is instant instead of stalling to
-  // load the model one-by-one. Best-effort; no-op if the engine isn't installed.
-  useEffect(() => {
-    if (!isTauri()) return;
-    (async () => {
-      try {
-        await ttsWarmup("en");
-        const langs = (await getUsedTtsLangs()).filter((l) => l && l !== "en");
-        await warmUsedLanguages(langs);
-      } catch {
-        /* best-effort */
-      }
-    })();
-  }, []);
+  // TTS no longer warms models at launch. Audio is pre-generated ("baked") to
+  // WAV files by the background crawler (see docs/TTS-ARCHITECTURE.md), so study
+  // just plays files and no model is loaded here. The crawler is started by the
+  // TTS generation setting, not on every launch.
 
   return (
     <ErrorBoundary>

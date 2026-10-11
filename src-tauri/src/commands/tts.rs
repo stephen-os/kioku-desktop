@@ -84,13 +84,22 @@ fn get_models_dir(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(get_tts_dir(app)?.join("models"))
 }
 
-/// Point a spawned engine process at the writable model cache via `HF_HOME`, so
-/// Hugging Face downloads/loads models there instead of the user's `~/.cache`.
-fn apply_model_env(cmd: &mut Command, app: &AppHandle) -> Result<(), String> {
+/// Point a spawned engine process at the writable model cache via `HF_HOME`.
+///
+/// `offline` controls whether the process may hit the network: study/bake runs
+/// pass `true` so Hugging Face is NEVER contacted at use time (a model that
+/// isn't already installed simply fails, instead of downloading mid-study). The
+/// ONLY caller that passes `false` is the explicit install/Settings model
+/// download — the single place HF fetching is allowed.
+fn apply_model_env(cmd: &mut Command, app: &AppHandle, offline: bool) -> Result<(), String> {
     let models = get_models_dir(app)?;
     fs::create_dir_all(&models).map_err(|e| format!("Failed to create models dir: {}", e))?;
     cmd.env("HF_HOME", &models);
     cmd.env("HF_HUB_DISABLE_SYMLINKS_WARNING", "1");
+    if offline {
+        cmd.env("HF_HUB_OFFLINE", "1");
+        cmd.env("TRANSFORMERS_OFFLINE", "1");
+    }
     Ok(())
 }
 
@@ -365,7 +374,7 @@ fn spawn_daemon(app: &AppHandle) -> Result<Daemon, String> {
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::null());
-    apply_model_env(&mut cmd, app)?;
+    apply_model_env(&mut cmd, app, true)?; // study/bake daemon never downloads
     #[cfg(windows)]
     cmd.creation_flags(CREATE_NO_WINDOW);
 
@@ -470,12 +479,102 @@ pub async fn tts_warmup(app: AppHandle, lang: Option<String>) -> Result<(), Stri
 }
 
 /// The distinct spoken languages the active user's cards actually use, so the
-/// front end can background-warm just those voices (not all six).
+/// crawler can bake just those voices (not all six).
 #[tauri::command]
 pub fn get_used_tts_langs(state: State<DbState>) -> Result<Vec<String>, String> {
     let conn = state.0.lock().map_err(|e| format!("Lock error: {}", e))?;
     let user = db::get_active_user(&conn)?.ok_or_else(|| "No active user".to_string())?;
     db::get_used_tts_langs(&conn, &user.id)
+}
+
+/// Which language voices are installed on disk (persisted when downloaded). The
+/// crawler only bakes these; anything else is surfaced as "install in Settings".
+#[tauri::command]
+pub fn get_installed_tts_langs(state: State<DbState>) -> Result<Vec<String>, String> {
+    let conn = state.0.lock().map_err(|e| format!("Lock error: {}", e))?;
+    Ok(read_installed_langs(&conn))
+}
+
+fn read_installed_langs(conn: &rusqlite::Connection) -> Vec<String> {
+    conn.query_row(
+        "SELECT value FROM app_state WHERE key = 'tts_installed_langs'",
+        [],
+        |r| r.get::<_, String>(0),
+    )
+    .ok()
+    .and_then(|s| serde_json::from_str::<Vec<String>>(&s).ok())
+    .unwrap_or_default()
+}
+
+/// Download the given language voice models **from Hugging Face**. This is the
+/// ONLY place the engine is allowed to touch the network (install / Settings) —
+/// study and baking always run offline. Each language's model is fetched into
+/// the writable model cache and recorded as installed. Emits progress on
+/// `tts-download-progress`.
+#[tauri::command]
+pub async fn download_tts_models(app: AppHandle, langs: Vec<String>) -> Result<(), String> {
+    let engine = get_engine_exe(&app)?;
+    if !engine.exists() {
+        return Err("TTS engine not installed".to_string());
+    }
+    let cache = get_cache_dir(&app)?;
+    fs::create_dir_all(&cache).map_err(|e| format!("Failed to create cache dir: {}", e))?;
+
+    let total = langs.len().max(1);
+    for (i, lang) in langs.iter().enumerate() {
+        let _ = app.emit(
+            "tts-download-progress",
+            DownloadProgress {
+                id: "models".to_string(),
+                progress: i as f32 / total as f32,
+                message: format!("Downloading {} voice…", lang),
+            },
+        );
+
+        // Reuse the one-shot CLI online to pull the model into the cache (it
+        // synths a throwaway clip as a side effect, which we delete).
+        let tmp = cache.join(format!("_dl_{}.wav", lang));
+        let mut cmd = Command::new(&engine);
+        cmd.arg("--lang").arg(lang).arg("--out").arg(&tmp).arg("--text").arg("warm up");
+        apply_model_env(&mut cmd, &app, false)?; // ONLINE — the one allowed exception
+        #[cfg(windows)]
+        cmd.creation_flags(CREATE_NO_WINDOW);
+        let status = cmd
+            .status()
+            .map_err(|e| format!("Failed to download {} voice: {}", lang, e))?;
+        let _ = fs::remove_file(&tmp);
+        if !status.success() {
+            return Err(format!("Failed to download {} voice (exit {})", lang, status));
+        }
+    }
+
+    // Record the installed set (union with what's already there).
+    {
+        let db = app.state::<DbState>();
+        let conn = db.0.lock().map_err(|e| format!("Lock error: {}", e))?;
+        let mut installed = read_installed_langs(&conn);
+        for l in &langs {
+            if !installed.contains(l) {
+                installed.push(l.clone());
+            }
+        }
+        let json = serde_json::to_string(&installed).map_err(|e| e.to_string())?;
+        conn.execute(
+            "INSERT OR REPLACE INTO app_state (key, value) VALUES ('tts_installed_langs', ?1)",
+            rusqlite::params![json],
+        )
+        .map_err(|e| format!("Failed to record installed voices: {}", e))?;
+    }
+
+    let _ = app.emit(
+        "tts-download-progress",
+        DownloadProgress {
+            id: "models".to_string(),
+            progress: 1.0,
+            message: "Voices installed".to_string(),
+        },
+    );
+    Ok(())
 }
 
 /// Synthesize `text` in `lang` to a cached WAV and return its absolute path.
@@ -540,7 +639,7 @@ pub async fn synthesize_tts(app: AppHandle, text: String, lang: String) -> Resul
         .arg(&text)
         .arg("--out")
         .arg(&out_path);
-    apply_model_env(&mut cmd, &app)?;
+    apply_model_env(&mut cmd, &app, true)?; // never download on a synth
     #[cfg(windows)]
     cmd.creation_flags(CREATE_NO_WINDOW);
 

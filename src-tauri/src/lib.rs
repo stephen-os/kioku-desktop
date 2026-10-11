@@ -152,6 +152,8 @@ pub fn run() {
             commands::tts::synthesize_tts,
             commands::tts::tts_warmup,
             commands::tts::get_used_tts_langs,
+            commands::tts::get_installed_tts_langs,
+            commands::tts::download_tts_models,
             // Notebook commands
             commands::notebooks::get_all_notebooks,
             commands::notebooks::get_notebook,
