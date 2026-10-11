@@ -15,6 +15,7 @@ import {
   reorderLessonItems,
   getAllDecks,
   getAllQuizzes,
+  resetCourseProgress,
 } from "@/lib/db";
 import { useToast } from "@/context/ToastContext";
 
@@ -45,6 +46,28 @@ export function CourseEditor() {
   // Lesson form
   const [lessonTitle, setLessonTitle] = useState("");
   const [lessonDescription, setLessonDescription] = useState("");
+
+  // Reset-progress flow (requires typing the course name to confirm)
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
+  const [resetConfirmText, setResetConfirmText] = useState("");
+  const [resetting, setResetting] = useState(false);
+
+  const handleResetProgress = async () => {
+    if (!id || !course || resetConfirmText !== course.name) return;
+    setResetting(true);
+    try {
+      await resetCourseProgress(id);
+      toast.success("Course progress reset");
+      setShowResetConfirm(false);
+      setResetConfirmText("");
+      await loadData();
+    } catch (error) {
+      console.error("Failed to reset course progress:", error);
+      toast.error("Failed to reset course progress");
+    } finally {
+      setResetting(false);
+    }
+  };
 
 
   const loadData = useCallback(async () => {
@@ -370,6 +393,58 @@ export function CourseEditor() {
                 <div className="text-center py-8 text-[#939293]">
                   <p>No lessons in this course yet.</p>
                   <p className="text-sm mt-1">Add lessons to organize your learning path.</p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Reset progress */}
+          {!isNew && course && (
+            <div className="bg-[#403e41] rounded-xl border border-[#ff6188]/30 p-6 mt-6">
+              <h2 className="text-lg font-semibold text-[#fcfcfa] mb-1">Reset progress</h2>
+              <p className="text-sm text-[#939293] mb-4">
+                Clears all completion for this course. Your decks, quizzes, and lessons are not deleted.
+              </p>
+              {!showResetConfirm ? (
+                <button
+                  onClick={() => {
+                    setShowResetConfirm(true);
+                    setResetConfirmText("");
+                  }}
+                  className="px-4 py-2 text-[#ff6188] border border-[#ff6188]/40 text-sm rounded-lg hover:bg-[#ff6188]/10 transition-colors font-medium"
+                >
+                  Reset course progress
+                </button>
+              ) : (
+                <div className="space-y-3">
+                  <p className="text-sm text-[#fcfcfa]">
+                    Type <span className="font-mono text-[#ffd866]">{course.name}</span> to confirm.
+                  </p>
+                  <input
+                    type="text"
+                    value={resetConfirmText}
+                    onChange={(e) => setResetConfirmText(e.target.value)}
+                    placeholder="Course name"
+                    className="w-full px-3 py-2 bg-[#2d2a2e] border border-[#5b595c] rounded-lg text-[#fcfcfa] placeholder-[#5b595c] focus:outline-none focus:border-[#ff6188]"
+                  />
+                  <div className="flex gap-2">
+                    <button
+                      onClick={handleResetProgress}
+                      disabled={resetting || resetConfirmText !== course.name}
+                      className="px-4 py-2 bg-[#ff6188] text-[#2d2a2e] text-sm rounded-lg hover:bg-[#ff6188]/90 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {resetting ? "Resetting..." : "Confirm reset"}
+                    </button>
+                    <button
+                      onClick={() => {
+                        setShowResetConfirm(false);
+                        setResetConfirmText("");
+                      }}
+                      className="px-4 py-2 border border-[#5b595c] text-[#fcfcfa] text-sm rounded-lg hover:bg-[#5b595c]/30 transition-colors"
+                    >
+                      Cancel
+                    </button>
+                  </div>
                 </div>
               )}
             </div>

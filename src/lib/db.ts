@@ -367,6 +367,10 @@ export async function getLessonProgress(courseId: string): Promise<LessonProgres
   return invoke<LessonProgress[]>("get_lesson_progress", { courseId });
 }
 
+export async function resetCourseProgress(courseId: string): Promise<void> {
+  return invoke("reset_course_progress", { courseId });
+}
+
 export async function linkCourseItems(courseId: string): Promise<LinkItemsResult> {
   return invoke<LinkItemsResult>("link_course_items", { courseId });
 }

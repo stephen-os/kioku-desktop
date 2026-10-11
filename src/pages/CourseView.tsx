@@ -12,6 +12,20 @@ import {
 import { FavoriteButton, BackButton } from "@/components";
 import { useToast } from "@/context/ToastContext";
 
+// Build a study/quiz launch URL that carries course context so the session can
+// record progress and return the user to the course on completion.
+function courseLaunchUrl(courseId: string, lessonId: string, item: LessonItem): string {
+  const base =
+    item.itemType === "deck"
+      ? `/decks/${item.itemId}/study`
+      : `/quizzes/${item.itemId}/take`;
+  const ctx = new URLSearchParams({ courseId, lessonId, lessonItemId: item.id });
+  if (item.requirementType === "min_score" && item.requirementValue != null) {
+    ctx.set("minScore", String(item.requirementValue));
+  }
+  return `${base}?${ctx.toString()}`;
+}
+
 export function CourseView() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -154,6 +168,7 @@ export function CourseView() {
     return null;
   };
   const nextItem = findNextItem();
+  const continueTo = nextItem ? courseLaunchUrl(id!, nextItem.lesson.id, nextItem.item) : "";
 
   return (
     <div className="min-h-full bg-[#2d2a2e]">
@@ -242,7 +257,7 @@ export function CourseView() {
               </div>
               {nextItem && (
                 <Link
-                  to={nextItem.item.itemType === "deck" ? `/decks/${nextItem.item.itemId}/study` : `/quizzes/${nextItem.item.itemId}/take`}
+                  to={continueTo}
                   className="px-4 py-2 bg-[#a9dc76] text-[#2d2a2e] text-sm rounded-lg hover:bg-[#a9dc76]/90 transition-colors font-medium whitespace-nowrap"
                 >
                   Continue Learning
@@ -332,7 +347,7 @@ interface LessonSectionProps {
   onToggleItemComplete: (item: LessonItem) => void;
 }
 
-function LessonSection({ lesson, lessonIndex, isExpanded, onToggle, onToggleItemComplete }: LessonSectionProps) {
+function LessonSection({ lesson, lessonIndex, courseId, isExpanded, onToggle, onToggleItemComplete }: LessonSectionProps) {
   const itemCount = lesson.items.length;
   const completedItemCount = lesson.completedItemCount ?? 0;
 
@@ -394,6 +409,8 @@ function LessonSection({ lesson, lessonIndex, isExpanded, onToggle, onToggleItem
                   key={item.id}
                   item={item}
                   index={itemIndex}
+                  courseId={courseId}
+                  lessonId={lesson.id}
                   onToggleComplete={() => onToggleItemComplete(item)}
                 />
               ))}
@@ -408,13 +425,16 @@ function LessonSection({ lesson, lessonIndex, isExpanded, onToggle, onToggleItem
 interface LessonItemCardProps {
   item: LessonItem;
   index: number;
+  courseId: string;
+  lessonId: string;
   onToggleComplete: () => void;
 }
 
-function LessonItemCard({ item, index, onToggleComplete }: LessonItemCardProps) {
+function LessonItemCard({ item, index, courseId, lessonId, onToggleComplete }: LessonItemCardProps) {
   const isDeck = item.itemType === "deck";
   const isMissing = item.isMissing ?? false;
-  const studyPath = isDeck ? `/decks/${item.itemId}/study` : `/quizzes/${item.itemId}/take`;
+  // Study/Take launches in course context (records progress, returns to course).
+  const studyPath = courseLaunchUrl(courseId, lessonId, item);
   const viewPath = isDeck ? `/decks/${item.itemId}` : `/quizzes/${item.itemId}`;
 
   // Format requirement text

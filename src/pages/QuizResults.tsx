@@ -1,8 +1,8 @@
-import { useState, useEffect } from "react";
-import { useParams, Link } from "react-router-dom";
+import { useState, useEffect, useRef } from "react";
+import { useParams, Link, useSearchParams } from "react-router-dom";
 import type { Quiz, QuizAttempt, Question } from "@/types";
 import { CODE_LANGUAGE_LABELS } from "@/types";
-import { getQuiz, getQuizAttempt } from "@/lib/db";
+import { getQuiz, getQuizAttempt, recordLessonProgress } from "@/lib/db";
 import { CodeBlock } from "@/components/CodeEditor";
 import { BackButton } from "@/components";
 import { useToast } from "@/context/ToastContext";
@@ -10,12 +10,20 @@ import { formatTimerDuration } from "@/lib/utils";
 
 export function QuizResults() {
   const { id, attemptId } = useParams<{ id: string; attemptId: string }>();
+  const [searchParams] = useSearchParams();
   const toast = useToast();
   const [quiz, setQuiz] = useState<Quiz | null>(null);
   const [attempt, setAttempt] = useState<QuizAttempt | null>(null);
   const [loading, setLoading] = useState(true);
   const [showReview, setShowReview] = useState(false);
   const [reviewIndex, setReviewIndex] = useState(0);
+
+  // Course context (present only when the quiz was launched from a course).
+  const courseId = searchParams.get("courseId") || "";
+  const courseLessonId = searchParams.get("lessonId") || "";
+  const courseLessonItemId = searchParams.get("lessonItemId") || "";
+  const courseMinScore = searchParams.get("minScore");
+  const courseQuery = courseId ? `?${searchParams.toString()}` : "";
 
   useEffect(() => {
     async function loadResults() {
@@ -36,6 +44,24 @@ export function QuizResults() {
     }
     loadResults();
   }, [id, attemptId, toast]);
+
+  // In course context, passing the quiz (meeting any required min score) records
+  // lesson progress (R2-2: quizzes are the real gate). Fires once.
+  const recordedRef = useRef(false);
+  useEffect(() => {
+    if (!attempt || recordedRef.current) return;
+    if (!courseId || !courseLessonId || !courseLessonItemId) return;
+    const min = courseMinScore ? parseInt(courseMinScore, 10) : 0;
+    if (attempt.scorePercentage < min) return; // didn't meet the bar — not counted
+    recordedRef.current = true;
+    recordLessonProgress(
+      courseId,
+      courseLessonId,
+      courseLessonItemId,
+      Math.round(attempt.scorePercentage),
+      attemptId || undefined
+    ).catch((err) => console.error("Failed to record course progress:", err));
+  }, [attempt, courseId, courseLessonId, courseLessonItemId, courseMinScore, attemptId]);
 
   const getScoreColor = (score: number) => {
     if (score >= 80) return "text-[#a9dc76]";
@@ -292,8 +318,8 @@ export function QuizResults() {
         <div className="max-w-4xl mx-auto px-6 py-4">
           <div className="flex justify-between items-center">
             <BackButton
-              fallbackPath={`/quizzes/${id}`}
-              label="Back to Quiz"
+              fallbackPath={courseId ? `/courses/${courseId}` : `/quizzes/${id}`}
+              label={courseId ? "Back to Course" : "Back to Quiz"}
               className="text-[#78dce8] hover:text-[#ffd866] flex items-center transition-colors"
             />
             <div className="text-center">
@@ -376,16 +402,16 @@ export function QuizResults() {
               </button>
             )}
             <Link
-              to={`/quizzes/${id}/take`}
+              to={`/quizzes/${id}/take${courseQuery}`}
               className="flex-1 px-6 py-3 bg-[#ffd866] text-[#2d2a2e] rounded-lg hover:bg-[#ffd866]/90 font-medium transition-colors text-center"
             >
               Take Again
             </Link>
             <Link
-              to="/quizzes"
+              to={courseId ? `/courses/${courseId}` : "/quizzes"}
               className="flex-1 px-6 py-3 border border-[#5b595c] rounded-lg text-[#fcfcfa] hover:bg-[#5b595c]/30 font-medium transition-colors text-center"
             >
-              All Quizzes
+              {courseId ? "Back to Course" : "All Quizzes"}
             </Link>
           </div>
         </div>

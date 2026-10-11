@@ -32,7 +32,7 @@ pub use courses::{
     add_lesson_item, clear_lesson_item_progress, create_lesson, delete_lesson, get_lesson,
     get_lesson_items, get_lesson_progress, get_lessons, link_lesson_items_by_name,
     record_lesson_progress, remove_lesson_item, reorder_lesson_items, reorder_lessons,
-    update_lesson, update_lesson_item_reference,
+    reset_course_progress, update_lesson, update_lesson_item_reference,
 };
 
 // User operations

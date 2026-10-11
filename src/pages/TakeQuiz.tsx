@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import type { Quiz, QuestionAnswer } from "@/types";
 import { CODE_LANGUAGE_LABELS } from "@/types";
 import { getQuiz, startQuizAttempt, submitQuizAttempt } from "@/lib/db";
@@ -10,6 +10,7 @@ import { useToast } from "@/context/ToastContext";
 
 export function TakeQuiz() {
   const { id } = useParams<{ id: string }>();
+  const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const toast = useToast();
   const [quiz, setQuiz] = useState<Quiz | null>(null);
@@ -132,13 +133,16 @@ export function TakeQuiz() {
       }));
 
       await submitQuizAttempt(attemptId, { answers: questionAnswers });
-      navigate(`/quizzes/${id}/results/${attemptId}`);
+      // Forward any course context so the results screen can record progress
+      // and offer "Back to Course".
+      const ctx = searchParams.toString();
+      navigate(`/quizzes/${id}/results/${attemptId}${ctx ? `?${ctx}` : ""}`);
     } catch (error) {
       console.error("Failed to submit quiz:", error);
       toast.error("Failed to submit quiz");
       setSubmitting(false);
     }
-  }, [attemptId, questions, answers, navigate, id, toast]);
+  }, [attemptId, questions, answers, navigate, id, toast, searchParams]);
 
   // Keyboard navigation
   useEffect(() => {

@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useParams, Link, useSearchParams } from "react-router-dom";
 import type { Card, Deck, Tag } from "@/types";
 import { CODE_LANGUAGE_LABELS } from "@/types";
-import { getCardsForDeck, getDeck, getTagsForDeck, startStudySession, endStudySession } from "@/lib/db";
+import { getCardsForDeck, getDeck, getTagsForDeck, startStudySession, endStudySession, recordLessonProgress } from "@/lib/db";
 import { shuffle } from "@/lib/utils";
 import { isTauri } from "@/lib/auth";
 import { CodeBlock } from "@/components/CodeEditor";
@@ -59,6 +59,14 @@ export function StudyMode() {
   const rawTagMode = searchParams.get("tagMode");
   const urlTagMode: FilterLogic = rawTagMode === "any" || rawTagMode === "all" ? rawTagMode : "any";
   const hasUrlFilters = urlFrontSearch || urlBackSearch || urlTagsRaw.length > 0;
+
+  // Course context (present only when launched from a course). When set, opening
+  // the deck records lesson progress (R2-1) and "Back" returns to the course.
+  const courseId = searchParams.get("courseId") || "";
+  const courseLessonId = searchParams.get("lessonId") || "";
+  const courseLessonItemId = searchParams.get("lessonItemId") || "";
+  const backPath = courseId ? `/courses/${courseId}` : `/decks/${id}`;
+  const backLabel = courseId ? "Back to Course" : "Back";
 
   // Parse tag IDs only when needed (memoized)
   const urlTagIds = useMemo(() =>
@@ -220,6 +228,18 @@ export function StudyMode() {
       cardsViewedRef.current.add(currentIndex);
     }
   }, [currentIndex, studyStarted, cards.length]);
+
+  // Opening a deck from a course marks its lesson item complete (R2-1: opening
+  // counts; the user need not go through every card). Fires once per launch.
+  const courseProgressRecordedRef = useRef(false);
+  useEffect(() => {
+    if (!courseId || !courseLessonId || !courseLessonItemId) return;
+    if (courseProgressRecordedRef.current) return;
+    courseProgressRecordedRef.current = true;
+    recordLessonProgress(courseId, courseLessonId, courseLessonItemId).catch((err) => {
+      console.error("Failed to record course progress:", err);
+    });
+  }, [courseId, courseLessonId, courseLessonItemId]);
 
   // Filter cards based on selected tags AND URL search filters
   const filteredCards = useMemo(() => {
@@ -500,7 +520,7 @@ export function StudyMode() {
         <div className="bg-[#403e41] border-b border-[#5b595c] flex-shrink-0">
           <div className="max-w-4xl mx-auto px-6 py-4">
             <div className="flex justify-between items-center">
-              <BackButton fallbackPath={`/decks/${id}`} label="Back" />
+              <BackButton fallbackPath={backPath} label={backLabel} />
               <h1 className="text-xl font-bold text-[#fcfcfa] font-mono truncate max-w-[300px]">
                 {deck?.name}
               </h1>
@@ -722,8 +742,8 @@ export function StudyMode() {
                   </button>
                 )}
                 <BackButton
-                  fallbackPath={`/decks/${id}`}
-                  label="Back to Deck"
+                  fallbackPath={backPath}
+                  label={courseId ? "Back to Course" : "Back to Deck"}
                   className="px-6 py-3 border border-[#5b595c] rounded-lg text-[#fcfcfa] hover:bg-[#5b595c]/30 font-medium transition-colors"
                 />
               </div>

@@ -80,6 +80,7 @@ pub fn run() {
             commands::courses::record_lesson_progress,
             commands::courses::clear_lesson_item_progress,
             commands::courses::get_lesson_progress,
+            commands::courses::reset_course_progress,
             commands::courses::link_course_items,
             // Quiz tag commands
             commands::quizzes::get_tags_for_quiz,

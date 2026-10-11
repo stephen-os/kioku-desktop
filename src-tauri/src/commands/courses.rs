@@ -260,6 +260,14 @@ pub fn get_lesson_progress(
     db::get_lesson_progress(&conn, &active_user.id, &course_id)
 }
 
+#[tauri::command]
+pub fn reset_course_progress(state: State<DbState>, course_id: String) -> Result<(), String> {
+    let conn = state.0.lock().map_err(|e| format!("Lock error: {}", e))?;
+    let active_user =
+        db::get_active_user(&conn)?.ok_or_else(|| "No active user".to_string())?;
+    db::reset_course_progress(&conn, &active_user.id, &course_id)
+}
+
 // ============================================
 // Utility: Link missing items
 // ============================================

@@ -717,6 +717,20 @@ pub fn clear_lesson_item_progress(
     Ok(())
 }
 
+pub fn reset_course_progress(
+    conn: &Connection,
+    user_id: &str,
+    course_id: &str,
+) -> Result<(), String> {
+    conn.execute(
+        "DELETE FROM lesson_progress WHERE user_id = ?1 AND course_id = ?2",
+        params![user_id, course_id],
+    )
+    .map_err(|e| format!("Failed to reset course progress: {}", e))?;
+
+    Ok(())
+}
+
 pub fn get_lesson_progress(
     conn: &Connection,
     user_id: &str,
