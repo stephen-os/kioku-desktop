@@ -371,6 +371,23 @@ export async function resetCourseProgress(courseId: string): Promise<void> {
   return invoke("reset_course_progress", { courseId });
 }
 
+// Course-owned content (studied/taken/read with the shared engines)
+export async function getCourseDeck(courseDeckId: string): Promise<Deck> {
+  return invoke<Deck>("get_course_deck", { courseDeckId });
+}
+
+export async function getCourseCards(courseDeckId: string): Promise<Card[]> {
+  return invoke<Card[]>("get_course_cards", { courseDeckId });
+}
+
+export async function getCourseQuiz(courseQuizId: string): Promise<Quiz> {
+  return invoke<Quiz>("get_course_quiz", { courseQuizId });
+}
+
+export async function getCoursePage(coursePageId: string): Promise<Page> {
+  return invoke<Page>("get_course_page", { coursePageId });
+}
+
 export async function linkCourseItems(courseId: string): Promise<LinkItemsResult> {
   return invoke<LinkItemsResult>("link_course_items", { courseId });
 }

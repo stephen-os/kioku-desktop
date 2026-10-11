@@ -1,5 +1,6 @@
 // Database module - organized into submodules by domain
 
+pub mod course_content;
 pub mod courses;
 pub mod decks;
 pub mod models;
@@ -26,6 +27,9 @@ pub use courses::{
     create_course, delete_course, get_all_courses, get_course, get_course_with_lessons,
     toggle_course_favorite, update_course,
 };
+
+// Course-owned content operations (read loaders; create fns land with authoring)
+pub use course_content::{get_course_cards, get_course_deck, get_course_page, get_course_quiz};
 
 // Lesson operations
 pub use courses::{

@@ -1,9 +1,9 @@
 use tauri::State;
 
 use crate::db::{
-    self, AddLessonItemRequest, Course, CreateCourseRequest, CreateLessonRequest, DbState, Lesson,
-    LessonItem, LessonProgress, ReorderLessonItemsRequest, ReorderLessonsRequest,
-    UpdateCourseRequest, UpdateLessonRequest,
+    self, AddLessonItemRequest, Card, Course, CreateCourseRequest, CreateLessonRequest, DbState,
+    Deck, Lesson, LessonItem, LessonProgress, Page, Quiz, ReorderLessonItemsRequest,
+    ReorderLessonsRequest, UpdateCourseRequest, UpdateLessonRequest,
 };
 
 // ============================================
@@ -266,6 +266,34 @@ pub fn reset_course_progress(state: State<DbState>, course_id: String) -> Result
     let active_user =
         db::get_active_user(&conn)?.ok_or_else(|| "No active user".to_string())?;
     db::reset_course_progress(&conn, &active_user.id, &course_id)
+}
+
+// ============================================
+// Course-Owned Content (read; studied/taken/read with the shared engines)
+// ============================================
+
+#[tauri::command]
+pub fn get_course_deck(state: State<DbState>, course_deck_id: String) -> Result<Deck, String> {
+    let conn = state.0.lock().map_err(|e| format!("Lock error: {}", e))?;
+    db::get_course_deck(&conn, &course_deck_id)
+}
+
+#[tauri::command]
+pub fn get_course_cards(state: State<DbState>, course_deck_id: String) -> Result<Vec<Card>, String> {
+    let conn = state.0.lock().map_err(|e| format!("Lock error: {}", e))?;
+    db::get_course_cards(&conn, &course_deck_id)
+}
+
+#[tauri::command]
+pub fn get_course_quiz(state: State<DbState>, course_quiz_id: String) -> Result<Quiz, String> {
+    let conn = state.0.lock().map_err(|e| format!("Lock error: {}", e))?;
+    db::get_course_quiz(&conn, &course_quiz_id)
+}
+
+#[tauri::command]
+pub fn get_course_page(state: State<DbState>, course_page_id: String) -> Result<Page, String> {
+    let conn = state.0.lock().map_err(|e| format!("Lock error: {}", e))?;
+    db::get_course_page(&conn, &course_page_id)
 }
 
 // ============================================
