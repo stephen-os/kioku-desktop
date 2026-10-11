@@ -457,37 +457,6 @@ fn kill_daemon(app: &AppHandle) {
     }
 }
 
-/// Start the daemon (if the engine is installed) and preload a language's model
-/// so later synthesis is fast. Called from the front end at app launch. An error
-/// here is harmless — the engine may simply not be installed yet, and the UI
-/// keeps using the Web Speech fallback until it is.
-#[tauri::command]
-pub async fn tts_warmup(app: AppHandle, lang: Option<String>) -> Result<(), String> {
-    let engine = app.state::<TtsEngine>();
-    let mut guard = engine
-        .0
-        .lock()
-        .map_err(|_| "TTS engine state poisoned".to_string())?;
-
-    if guard.is_none() {
-        *guard = Some(spawn_daemon(&app)?);
-    }
-    let daemon = guard.as_mut().unwrap();
-
-    let lang = lang.unwrap_or_else(|| "en".to_string());
-    let resp = daemon_exchange(daemon, &json!({ "cmd": "warm", "lang": lang }))?;
-    daemon_ok(resp)
-}
-
-/// The distinct spoken languages the active user's cards actually use, so the
-/// crawler can bake just those voices (not all six).
-#[tauri::command]
-pub fn get_used_tts_langs(state: State<DbState>) -> Result<Vec<String>, String> {
-    let conn = state.0.lock().map_err(|e| format!("Lock error: {}", e))?;
-    let user = db::get_active_user(&conn)?.ok_or_else(|| "No active user".to_string())?;
-    db::get_used_tts_langs(&conn, &user.id)
-}
-
 /// Which language voices are installed on disk (persisted when downloaded). The
 /// crawler only bakes these; anything else is surfaced as "install in Settings".
 #[tauri::command]
@@ -744,6 +713,18 @@ pub fn tts_gc(app: AppHandle, state: State<DbState>) -> Result<u64, String> {
         }
     }
     Ok(removed)
+}
+
+/// The baked WAV path for (lang, text) if it exists, else None. Never
+/// generates — the study path uses this so no model is loaded while studying.
+#[tauri::command]
+pub fn tts_cached_path(app: AppHandle, text: String, lang: String) -> Result<Option<String>, String> {
+    let path = get_cache_dir(&app)?.join(cache_filename(&lang, &text));
+    Ok(if path.exists() {
+        Some(path.to_string_lossy().to_string())
+    } else {
+        None
+    })
 }
 
 /// Delete ALL cached audio (the user's "clear cached audio" action). Installed

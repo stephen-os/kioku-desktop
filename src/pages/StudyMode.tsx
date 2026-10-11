@@ -8,7 +8,7 @@ import { isTauri } from "@/lib/auth";
 import { CodeBlock } from "@/components/CodeEditor";
 import { BackButton } from "@/components";
 import { useToast } from "@/context/ToastContext";
-import { speak, stopSpeaking, textForSpeech, prefetchTts } from "@/lib/tts";
+import { speak, stopSpeaking, textForSpeech } from "@/lib/tts";
 
 // Persisted toggle: auto-read each card side aloud as you study.
 const AUTO_READ_KEY = "kioku-study-autoread";
@@ -344,14 +344,8 @@ export function StudyMode() {
   // Stop audio when leaving study mode.
   useEffect(() => () => stopSpeaking(), []);
 
-  // Pre-generate (cache) the current card's back and the next card's front so a
-  // flip or Next plays instantly. Only while viewing a card. Best-effort.
-  useEffect(() => {
-    if (!viewingCard) return;
-    prefetchTts(textForSpeech(currentCard!.back, currentCard!.backType), currentCard!.backTtsLang ?? "en");
-    const next = cards[currentIndex + 1];
-    if (next) prefetchTts(textForSpeech(next.front, next.frontType), next.frontTtsLang ?? "en");
-  }, [currentIndex, viewingCard, currentCard, cards]);
+  // Audio is pre-baked by the background crawler (see docs/TTS-ARCHITECTURE.md),
+  // so there's no per-card prefetch/synth here — study just plays cached files.
 
   const handleFlip = useCallback(() => {
     if (!isAnimating) {

@@ -128,52 +128,12 @@ export async function clearTtsCache(): Promise<void> {
 }
 
 /**
- * Synthesize text to a cached WAV via the MeloTTS engine and return the file path.
- * Throws if the engine is not installed (so callers can fall back to Web Speech).
+ * Return the baked WAV path for (lang, text) if it exists, else null. Never
+ * generates — study plays pre-baked audio only, so no TTS model is ever loaded
+ * while studying. Baking is done ahead of time by the crawler.
  */
-export async function synthesizeTts(text: string, lang: string): Promise<string> {
-  return invoke<string>("synthesize_tts", { text, lang });
-}
-
-/**
- * Warm up the engine: start the persistent daemon and preload a language model
- * so later synthesis is near-instant. Best-effort; harmless if not installed.
- */
-export async function ttsWarmup(lang: string = "en"): Promise<void> {
-  await invoke("tts_warmup", { lang });
-}
-
-/**
- * Preload the given language models sequentially in the background, so the
- * first Listen in each is instant instead of stalling to load the model.
- * Best-effort: no-ops when the engine isn't installed; skips failures.
- * The daemon caches each model, so already-warm languages return immediately.
- */
-export async function warmUsedLanguages(langs: string[]): Promise<void> {
-  if (langs.length === 0) return;
-  if (!(await isEngineAvailable())) return;
-  for (const lang of langs) {
-    try {
-      await ttsWarmup(lang);
-    } catch {
-      /* best-effort — a missing model/download failure shouldn't stop the rest */
-    }
-  }
-}
-
-/**
- * Pre-generate (and cache) audio without playing it, so a subsequent speak() of
- * the same text is instant. Best-effort — silently ignores errors and no-ops
- * when the engine isn't installed.
- */
-export async function prefetchTts(text: string, lang: string = "en"): Promise<void> {
-  if (!text.trim()) return;
-  if (!(await isEngineAvailable())) return;
-  try {
-    await synthesizeTts(text, lang);
-  } catch {
-    /* best-effort */
-  }
+export async function cachedTtsPath(text: string, lang: string): Promise<string | null> {
+  return invoke<string | null>("tts_cached_path", { text, lang });
 }
 
 /**
@@ -297,14 +257,18 @@ export async function speak(
 
   if (await isEngineAvailable()) {
     try {
-      const path = await synthesizeTts(text, lang);
-      if (gen !== speakGeneration) return; // superseded during synth — don't play
-      await playAudioFile(path, volume, gen);
-      return;
+      // Play the pre-baked WAV if it exists. We deliberately do NOT synthesize
+      // on a miss — that would load a model during study. A not-yet-baked side
+      // falls through to the system voice (no model) while the crawler catches up.
+      const path = await cachedTtsPath(text, lang);
+      if (gen !== speakGeneration) return; // superseded — don't play
+      if (path) {
+        await playAudioFile(path, volume, gen);
+        return;
+      }
     } catch (err) {
       if (gen !== speakGeneration) return; // stopped — don't fall back
-      // Engine missing or synthesis failed — fall through to Web Speech.
-      console.warn("MeloTTS synthesis failed, falling back to Web Speech:", err);
+      console.warn("TTS cache lookup failed, falling back to Web Speech:", err);
       engineAvailable = null; // re-check next time
     }
   }

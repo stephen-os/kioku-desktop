@@ -150,8 +150,6 @@ pub fn run() {
             commands::tts::uninstall_tts,
             commands::tts::get_tts_storage_size,
             commands::tts::synthesize_tts,
-            commands::tts::tts_warmup,
-            commands::tts::get_used_tts_langs,
             commands::tts::get_installed_tts_langs,
             commands::tts::download_tts_models,
             commands::tts::get_tts_generation_enabled,
@@ -160,6 +158,7 @@ pub fn run() {
             commands::tts::tts_deck_status,
             commands::tts::bake_tts,
             commands::tts::tts_gc,
+            commands::tts::tts_cached_path,
             commands::tts::clear_tts_cache,
             // Notebook commands
             commands::notebooks::get_all_notebooks,

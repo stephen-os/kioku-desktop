@@ -308,44 +308,6 @@ pub fn delete_card(conn: &Connection, id: &str, deck_id: &str) -> Result<(), Str
     Ok(())
 }
 
-/// Distinct non-null spoken languages used across a user's library and course
-/// cards (both sides). Drives background TTS warm-up so only the voices the user
-/// actually has get loaded — not all six.
-pub fn get_used_tts_langs(conn: &Connection, user_id: &str) -> Result<Vec<String>, String> {
-    let mut stmt = conn
-        .prepare(
-            "SELECT DISTINCT lang FROM (
-                 SELECT c.front_tts_lang AS lang FROM cards c
-                   JOIN decks d ON d.id = c.deck_id
-                   WHERE d.user_id = ?1 AND c.front_tts_lang IS NOT NULL
-                 UNION
-                 SELECT c.back_tts_lang FROM cards c
-                   JOIN decks d ON d.id = c.deck_id
-                   WHERE d.user_id = ?1 AND c.back_tts_lang IS NOT NULL
-                 UNION
-                 SELECT cc.front_tts_lang FROM course_cards cc
-                   JOIN course_decks cd ON cd.id = cc.course_deck_id
-                   JOIN courses co ON co.id = cd.course_id
-                   WHERE co.user_id = ?1 AND cc.front_tts_lang IS NOT NULL
-                 UNION
-                 SELECT cc.back_tts_lang FROM course_cards cc
-                   JOIN course_decks cd ON cd.id = cc.course_deck_id
-                   JOIN courses co ON co.id = cd.course_id
-                   WHERE co.user_id = ?1 AND cc.back_tts_lang IS NOT NULL
-             )
-             WHERE lang != ''",
-        )
-        .map_err(|e| format!("Failed to prepare used-langs query: {}", e))?;
-
-    let langs = stmt
-        .query_map(params![user_id], |row| row.get::<_, String>(0))
-        .map_err(|e| format!("Failed to query used langs: {}", e))?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|e| format!("Failed to collect used langs: {}", e))?;
-
-    Ok(langs)
-}
-
 /// Every speakable card side (library + course) as `(content, content_type,
 /// lang)`, where `lang` is the side's spoken language (NULL/empty => `en`).
 /// The TTS crawler turns these into (lang, synth-text) pairs and bakes the ones
