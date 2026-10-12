@@ -12,6 +12,23 @@ fn init_db(app: &AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+/// Allow the asset protocol to serve the **actual** audio-cache and images
+/// directories. These follow `KIOKU_DATA_DIR` in dev, so the static
+/// `$APPDATA/...` scope in tauri.conf.json isn't enough — without this, baked
+/// WAVs in a dev data dir are blocked and playback silently falls back to the
+/// system voice.
+fn allow_asset_dirs(app: &AppHandle) {
+    if let Ok(base) = db::app_data_base(app) {
+        let cache = base.join("tts").join("cache");
+        let images = base.join("images");
+        let _ = std::fs::create_dir_all(&cache);
+        let _ = std::fs::create_dir_all(&images);
+        let scope = app.asset_protocol_scope();
+        let _ = scope.allow_directory(&cache, true);
+        let _ = scope.allow_directory(&images, true);
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -21,6 +38,7 @@ pub fn run() {
         .manage(commands::tts::TtsEngine::default())
         .setup(|app| {
             init_db(app.handle())?;
+            allow_asset_dirs(app.handle());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
