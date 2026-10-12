@@ -13,7 +13,7 @@ pub mod users;
 
 // Re-export all public types and functions for convenient access
 pub use models::*;
-pub use state::{init_database, DbState};
+pub use state::{app_data_base, init_database, DbState};
 
 // Deck operations
 pub use decks::{

@@ -7,16 +7,27 @@ use tauri::{AppHandle, Manager};
 /// Database state wrapper for Tauri state management
 pub struct DbState(pub Mutex<Connection>);
 
+/// Base data directory for all Kioku data (database, TTS engine/cache).
+///
+/// Honors `KIOKU_DATA_DIR` so the dev environment can keep its data fully
+/// separate from the real production app-data (decks, progress, profiles). When
+/// unset — i.e. in production — it falls back to the OS app-data dir, so release
+/// builds are unaffected.
+pub fn app_data_base(app: &AppHandle) -> Result<PathBuf, String> {
+    let base = match std::env::var("KIOKU_DATA_DIR") {
+        Ok(dir) if !dir.trim().is_empty() => PathBuf::from(dir),
+        _ => app
+            .path()
+            .app_data_dir()
+            .map_err(|e| format!("Failed to get app data dir: {}", e))?,
+    };
+    fs::create_dir_all(&base).map_err(|e| format!("Failed to create data dir: {}", e))?;
+    Ok(base)
+}
+
 /// Get the path to the SQLite database file
 pub fn get_db_path(app: &AppHandle) -> Result<PathBuf, String> {
-    let app_data = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| format!("Failed to get app data dir: {}", e))?;
-
-    fs::create_dir_all(&app_data).map_err(|e| format!("Failed to create dir: {}", e))?;
-
-    Ok(app_data.join("kioku.db"))
+    Ok(app_data_base(app)?.join("kioku.db"))
 }
 
 /// Initialize the database connection and schema

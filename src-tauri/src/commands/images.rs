@@ -1,20 +1,18 @@
 use std::fs;
 use std::path::{Path, PathBuf};
-use tauri::{AppHandle, Manager};
+use tauri::AppHandle;
 use uuid::Uuid;
+
+use crate::db;
 
 /// Allowed image file extensions (lowercase, no dot).
 // SECURITY: allowlist, not denylist — anything not listed is rejected.
 const ALLOWED_EXTENSIONS: &[&str] = &["png", "jpg", "jpeg", "gif", "webp"];
 
-/// Get the images directory path, creating it if needed
+/// Get the images directory path, creating it if needed. Under the Kioku data
+/// base so it follows `KIOKU_DATA_DIR` (dev isolation) like the database.
 fn get_images_dir(app: &AppHandle) -> Result<PathBuf, String> {
-    let app_data = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| format!("Failed to get app data dir: {}", e))?;
-
-    let images_dir = app_data.join("images");
+    let images_dir = db::app_data_base(app)?.join("images");
 
     if !images_dir.exists() {
         fs::create_dir_all(&images_dir)

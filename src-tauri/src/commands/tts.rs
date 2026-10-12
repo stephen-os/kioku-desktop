@@ -60,28 +60,30 @@ pub struct TtsStatus {
     pub size_bytes: u64,
 }
 
-/// `<app_data>/tts`
+/// `<data>/tts` — under the Kioku data base (honors `KIOKU_DATA_DIR` in dev).
 fn get_tts_dir(app: &AppHandle) -> Result<PathBuf, String> {
-    let app_data_dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| format!("Failed to get app data dir: {}", e))?;
-    Ok(app_data_dir.join("tts"))
+    Ok(db::app_data_base(app)?.join("tts"))
 }
 
-/// `<app_data>/tts/engine`
+/// `<data>/tts/engine`
 fn get_engine_dir(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(get_tts_dir(app)?.join("engine"))
 }
 
-/// `<app_data>/tts/cache`
+/// `<data>/tts/cache`
 fn get_cache_dir(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(get_tts_dir(app)?.join("cache"))
 }
 
-/// `<app_data>/tts/models` — writable Hugging Face cache for models the engine
-/// downloads on first use (fetch-at-install; models are not bundled in the exe).
+/// Writable Hugging Face cache for downloaded voice models. Honors
+/// `KIOKU_TTS_MODELS_DIR` so a dev data dir can **reuse** the production models
+/// (several GB) instead of re-downloading them; otherwise `<data>/tts/models`.
 fn get_models_dir(app: &AppHandle) -> Result<PathBuf, String> {
+    if let Ok(dir) = std::env::var("KIOKU_TTS_MODELS_DIR") {
+        if !dir.trim().is_empty() {
+            return Ok(PathBuf::from(dir));
+        }
+    }
     Ok(get_tts_dir(app)?.join("models"))
 }
 

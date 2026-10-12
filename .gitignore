@@ -9,6 +9,10 @@ dist-ssr/
 src-tauri/target/
 src-tauri/gen/
 
+# Isolated dev data dir (KIOKU_DATA_DIR) — never ship dev decks/db
+.dev-data/
+src-tauri/.dev-data/
+
 # Environment files
 .env
 .env.local
