@@ -139,6 +139,17 @@ function GlobalShortcuts() {
 }
 
 function AppRoutes() {
+  const { user } = useAuth();
+
+  // Once a user is authenticated (and again on a user switch), kick the
+  // background TTS crawler to bake that account's pending card audio. No model
+  // is warmed at launch; study just plays cached files (docs/TTS-ARCHITECTURE.md).
+  useEffect(() => {
+    if (isTauri() && user) {
+      startTtsCrawl().catch(() => {});
+    }
+  }, [user?.id]);
+
   return (
     <Suspense fallback={<PageLoader />}>
       <GlobalShortcuts />
@@ -199,15 +210,6 @@ function AppRoutes() {
 }
 
 function App() {
-  // No model is warmed at launch. Instead, if TTS generation is enabled, kick
-  // the background crawler to bake any pending card audio to WAV files (see
-  // docs/TTS-ARCHITECTURE.md). Study then just plays files — no model resident.
-  useEffect(() => {
-    if (isTauri()) {
-      startTtsCrawl().catch(() => {});
-    }
-  }, []);
-
   return (
     <ErrorBoundary>
       <ToastProvider>

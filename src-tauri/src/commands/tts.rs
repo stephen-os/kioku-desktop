@@ -6,10 +6,12 @@ use std::collections::hash_map::DefaultHasher;
 use std::collections::HashSet;
 use std::fs;
 use std::hash::{Hash, Hasher};
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::path::PathBuf;
-use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
+use std::process::{Child, ChildStdin, Command, Stdio};
+use std::sync::mpsc;
 use std::sync::Mutex;
+use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::db::{self, DbState};
@@ -21,18 +23,12 @@ use std::os::windows::process::CommandExt;
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
 /// Download URL for the prebuilt standalone `kioku-tts` engine (MeloTTS, frozen
-/// with PyInstaller). The user hosts the per-platform ZIP on a `kioku-desktop`
-/// GitHub release and fills this in. Until then it stays as the placeholder
-/// below and `install_tts` returns a friendly error so the UI shows the
-/// Web Speech fallback.
-///
-/// TODO(KIOKU_TTS_RELEASE_URL): set this to the hosted release ZIP URL, e.g.
-/// "https://github.com/stephen-os/kioku-desktop/releases/download/tts-v1/kioku-tts-windows.zip"
+/// with PyInstaller), hosted as a per-platform ZIP on a `kioku-desktop` GitHub
+/// release.
 ///
 /// SECURITY: this URL MUST be `https` (enforced at install time) and MUST be set
-/// together with `EXPECTED_TTS_SHA256` below — the two placeholders are a pair.
-/// Shipping a real URL without the matching hash (or vice versa) is a mistake:
-/// `install_tts` fails closed if either is still a placeholder.
+/// in lockstep with `EXPECTED_TTS_SHA256` below — a real URL without the matching
+/// hash (or vice versa) is a mistake.
 const KIOKU_TTS_RELEASE_URL: &str =
     "https://github.com/stephen-os/kioku-desktop/releases/download/tts-engine-v1.0.0/kioku-tts-windows.zip";
 
@@ -40,8 +36,7 @@ const KIOKU_TTS_RELEASE_URL: &str =
 /// `KIOKU_TTS_RELEASE_URL`. The downloaded archive is verified against this
 /// digest *before* it is extracted and the engine executable is ever run, so a
 /// compromised release host / account / CDN cannot deliver a trojaned engine.
-/// MUST be set in lockstep with `KIOKU_TTS_RELEASE_URL` (see the note above);
-/// until the artifact is hosted both stay placeholders and install is disabled.
+/// Set it in lockstep with `KIOKU_TTS_RELEASE_URL` (see the note above).
 const EXPECTED_TTS_SHA256: &str =
     "489f6878c8bb5d1cf73a98fcd9d2da3f8f1d39fe6c3f265f6495eee15cb7e8d7";
 
@@ -175,19 +170,9 @@ fn tts_storage_bytes(app: &AppHandle) -> Result<u64, String> {
 }
 
 /// Download and extract the standalone MeloTTS engine into `<app_data>/tts/engine`.
-/// Emits progress on `tts-download-progress`. Returns a friendly error while the
-/// release URL is still the placeholder.
+/// Emits progress on `tts-download-progress`.
 #[tauri::command]
 pub async fn install_tts(app: AppHandle) -> Result<(), String> {
-    // SECURITY: fail closed unless both the URL and the pinned hash are set.
-    // They are a pair (see the constants above); refusing when either is still
-    // a placeholder prevents an unverified download from ever being extracted.
-    if KIOKU_TTS_RELEASE_URL == "TODO_SET_AFTER_HOSTING"
-        || EXPECTED_TTS_SHA256 == "TODO_SET_AFTER_HOSTING"
-    {
-        return Err("TTS engine not yet available".to_string());
-    }
-
     // Stop any running daemon so the engine files aren't locked during extract
     // (a running .exe can't be overwritten on Windows).
     kill_daemon(&app);
@@ -211,13 +196,15 @@ pub async fn install_tts(app: AppHandle) -> Result<(), String> {
         },
     );
 
-    // Stream-download the ZIP to disk (mirrors the old Piper install flow).
+    // Stream-download the ZIP to disk, hashing as we go.
     let client = reqwest::Client::new();
     let response = client
         .get(KIOKU_TTS_RELEASE_URL)
         .send()
         .await
-        .map_err(|e| format!("Failed to download TTS engine: {}", e))?;
+        .map_err(|e| format!("Failed to download TTS engine: {}", e))?
+        .error_for_status()
+        .map_err(|e| format!("Download failed: {}", e))?;
 
     let total_size = response.content_length().unwrap_or(0);
     let mut downloaded: u64 = 0;
@@ -281,8 +268,19 @@ pub async fn install_tts(app: AppHandle) -> Result<(), String> {
     let mut archive =
         zip::ZipArchive::new(zip_file).map_err(|e| format!("Failed to read zip: {}", e))?;
 
+    // SECURITY: bound extraction so a crafted/corrupt archive — even one that
+    // matches the pin — can't exhaust the disk (zip bomb). The real engine is
+    // ~1 GB across a few thousand files, so these ceilings are generous.
+    const MAX_TTS_EXTRACTED_BYTES: u64 = 6 * 1024 * 1024 * 1024;
+    const MAX_TTS_ENTRIES: usize = 50_000;
+    if archive.len() > MAX_TTS_ENTRIES {
+        let _ = fs::remove_file(&zip_path);
+        return Err("TTS engine archive has too many entries; aborting".to_string());
+    }
+
+    let mut total_extracted: u64 = 0;
     for i in 0..archive.len() {
-        let mut entry = archive
+        let entry = archive
             .by_index(i)
             .map_err(|e| format!("Failed to read zip entry: {}", e))?;
 
@@ -305,8 +303,17 @@ pub async fn install_tts(app: AppHandle) -> Result<(), String> {
 
         let mut out_file = fs::File::create(&out_path)
             .map_err(|e| format!("Failed to create file {:?}: {}", out_path, e))?;
-        std::io::copy(&mut entry, &mut out_file)
+        // Cap the bytes read from this entry to the remaining budget (+1 so we
+        // can detect an overrun) instead of trusting the declared size.
+        let remaining = MAX_TTS_EXTRACTED_BYTES.saturating_sub(total_extracted);
+        let written = std::io::copy(&mut entry.take(remaining + 1), &mut out_file)
             .map_err(|e| format!("Failed to extract {:?}: {}", out_path, e))?;
+        total_extracted += written;
+        if total_extracted > MAX_TTS_EXTRACTED_BYTES {
+            let _ = fs::remove_file(&out_path);
+            let _ = fs::remove_file(&zip_path);
+            return Err("TTS engine archive is larger than expected; aborting".to_string());
+        }
     }
 
     // Clean up the archive.
@@ -361,11 +368,20 @@ pub async fn get_tts_storage_size(app: AppHandle) -> Result<u64, String> {
 /// and each language's model stays resident, so every request after warm-up is
 /// fast. Spawned lazily (warm-up or first synth); when the app exits its stdin
 /// closes and the daemon reaches EOF and exits on its own.
+///
+/// Responses are read on a background thread and delivered over `rx`, so the
+/// request path can wait with a timeout instead of blocking forever if the
+/// engine wedges (e.g. a stuck model load).
 struct Daemon {
     child: Child,
     stdin: ChildStdin,
-    stdout: BufReader<ChildStdout>,
+    rx: mpsc::Receiver<String>,
 }
+
+/// Readiness handshake bound — generous, since a cold torch import is slow.
+const DAEMON_READY_TIMEOUT: Duration = Duration::from_secs(120);
+/// Per-request bound — a single clip synth is normally a few seconds.
+const DAEMON_EXCHANGE_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// Tauri managed state: the (optional) running daemon, behind a mutex so requests
 /// serialize (the engine processes one utterance at a time anyway).
@@ -406,22 +422,41 @@ fn spawn_daemon(app: &AppHandle) -> Result<Daemon, String> {
         .stdout
         .take()
         .ok_or_else(|| "TTS daemon has no stdout".to_string())?;
-    let mut reader = BufReader::new(stdout);
 
-    // Readiness handshake — blocks while the daemon imports torch.
-    let mut ready = String::new();
-    reader
-        .read_line(&mut ready)
-        .map_err(|e| format!("TTS daemon handshake failed: {}", e))?;
+    // Read responses on a background thread so the request path can time out.
+    // The thread ends on EOF / read error (which disconnects `rx`) or when the
+    // Daemon — and thus the receiver — is dropped.
+    let (tx, rx) = mpsc::channel::<String>();
+    std::thread::spawn(move || {
+        let mut reader = BufReader::new(stdout);
+        loop {
+            let mut line = String::new();
+            match reader.read_line(&mut line) {
+                Ok(0) | Err(_) => break,
+                Ok(_) => {
+                    if tx.send(line).is_err() {
+                        break;
+                    }
+                }
+            }
+        }
+    });
 
-    Ok(Daemon {
-        child,
-        stdin,
-        stdout: reader,
-    })
+    // Readiness handshake — bounded so a wedged torch import can't hang forever.
+    match rx.recv_timeout(DAEMON_READY_TIMEOUT) {
+        Ok(_) => {}
+        Err(_) => {
+            let _ = child.kill();
+            return Err("TTS daemon did not become ready in time".to_string());
+        }
+    }
+
+    Ok(Daemon { child, stdin, rx })
 }
 
-/// Send one JSON request line and read one JSON response line.
+/// Send one JSON request line and read one JSON response line, bounded by
+/// `DAEMON_EXCHANGE_TIMEOUT`. On timeout (or if the reader closed) the child is
+/// killed so the caller releases the engine lock and falls back to a one-shot.
 fn daemon_exchange(
     daemon: &mut Daemon,
     req: &serde_json::Value,
@@ -437,14 +472,13 @@ fn daemon_exchange(
         .flush()
         .map_err(|e| format!("TTS daemon flush failed: {}", e))?;
 
-    let mut resp = String::new();
-    let n = daemon
-        .stdout
-        .read_line(&mut resp)
-        .map_err(|e| format!("TTS daemon read failed: {}", e))?;
-    if n == 0 {
-        return Err("TTS daemon closed unexpectedly".to_string());
-    }
+    let resp = match daemon.rx.recv_timeout(DAEMON_EXCHANGE_TIMEOUT) {
+        Ok(line) => line,
+        Err(_) => {
+            let _ = daemon.child.kill();
+            return Err("TTS daemon timed out".to_string());
+        }
+    };
     serde_json::from_str(&resp).map_err(|e| format!("TTS daemon bad response: {}", e))
 }
 
@@ -691,10 +725,21 @@ pub fn tts_deck_status(
 /// daemon — so no more than one model is ever resident. Best-effort per clip.
 #[tauri::command]
 pub async fn bake_tts(app: AppHandle, lang: String, texts: Vec<String>) -> Result<(), String> {
+    let total = texts.len();
+    let mut failures = 0usize;
+    let mut last_err: Option<String> = None;
     for text in texts {
-        let _ = synthesize_tts(app.clone(), text, lang.clone()).await;
+        if let Err(e) = synthesize_tts(app.clone(), text, lang.clone()).await {
+            failures += 1;
+            last_err = Some(e);
+        }
     }
     kill_daemon(&app); // free the model's memory before the next language
+    // Partial failures are fine (best-effort), but if every clip failed the
+    // engine is likely broken — surface it so the crawler can tell.
+    if total > 0 && failures == total {
+        return Err(last_err.unwrap_or_else(|| "TTS baking failed for all clips".to_string()));
+    }
     Ok(())
 }
 
@@ -756,11 +801,10 @@ pub fn clear_tts_cache(app: AppHandle) -> Result<(), String> {
 
 /// Synthesize `text` in `lang` to a cached WAV and return its absolute path.
 /// Returns cached audio immediately when present; otherwise requires the engine
-/// to be installed (errors if not, so the front end can fall back to Web Speech).
-/// Prefers the persistent daemon and falls back to a one-shot process if the
-/// daemon is unavailable or fails.
-#[tauri::command]
-pub async fn synthesize_tts(app: AppHandle, text: String, lang: String) -> Result<String, String> {
+/// to be installed. Prefers the persistent daemon and falls back to a one-shot
+/// process if the daemon is unavailable or fails. Internal only — baking goes
+/// through `bake_tts`; study reads cached files via `tts_cached_path`.
+async fn synthesize_tts(app: AppHandle, text: String, lang: String) -> Result<String, String> {
     let cache_dir = get_cache_dir(&app)?;
     fs::create_dir_all(&cache_dir)
         .map_err(|e| format!("Failed to create cache dir: {}", e))?;
