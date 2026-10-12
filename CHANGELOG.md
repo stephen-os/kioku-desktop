@@ -1,5 +1,32 @@
 # Changelog
 
+## v2.3.0 — Course-owned content & bake-ahead TTS
+
+### Features
+- Courses rebuilt around course-owned content: each course holds its own copies
+  of decks/quizzes/notes, studied/taken/read in context with per-item progress
+  and best scores.
+- Adopt: save a personal, editable copy of a course item to your library.
+- In-place course authoring: edit content, create blank decks/quizzes/notes, or
+  copy library items into a course.
+- Unlocked course items surface read-only on the library pages ("From your
+  courses") with a Due filter; grid/list view toggle on library pages.
+- JSON import/export for whole courses (course-owned), plus an Export action on
+  the course page and a documented course schema in Help.
+- Bake-ahead TTS: voice models download at install (opt-in per language); audio
+  is pre-generated in the background and cached, so study playback uses no
+  resident model. Per-side spoken language; clear-cache; system-voice fallback.
+- Notes: clickable `[[wiki links]]` and syntax-highlighted code blocks.
+
+### Notable changes in this release
+- Multi-write course commands (add/remove item, adopt) and the first-run demo
+  seed now run in transactions.
+- TTS daemon I/O is bounded by timeouts (a stalled engine can't hang the app);
+  the engine download is verified (`error_for_status` + SHA-256) and extraction
+  is size/entry-capped; the bake crawler runs for the logged-in account only.
+- Removed the unused file-based image-attachment IPC surface and other dead code
+  and configuration (notes keep inline base64 images).
+
 ## v2.0.0 — Local-only full app
 
 The full-featured, offline desktop edition (local SQLite, no server dependency).
