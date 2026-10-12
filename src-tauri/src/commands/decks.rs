@@ -1,7 +1,7 @@
 use tauri::State;
 
 use crate::db::{
-    self, Card, CardTag, CreateCardRequest, CreateDeckRequest, DbState, Deck, Tag,
+    self, Card, CreateCardRequest, CreateDeckRequest, DbState, Deck, Tag,
     UpdateCardRequest, UpdateDeckRequest,
 };
 
@@ -124,12 +124,6 @@ pub fn delete_card(state: State<DbState>, id: String, deck_id: String) -> Result
 pub fn get_tags_for_deck(state: State<DbState>, deck_id: String) -> Result<Vec<Tag>, String> {
     let conn = state.0.lock().map_err(|e| format!("Lock error: {}", e))?;
     db::get_tags_for_deck(&conn, &deck_id)
-}
-
-#[tauri::command]
-pub fn get_tags_for_card(state: State<DbState>, card_id: String) -> Result<Vec<CardTag>, String> {
-    let conn = state.0.lock().map_err(|e| format!("Lock error: {}", e))?;
-    db::get_tags_for_card(&conn, &card_id)
 }
 
 #[tauri::command]

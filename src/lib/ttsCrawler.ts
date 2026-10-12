@@ -24,10 +24,6 @@ export function onCrawlStatus(listener: (s: CrawlStatus) => void): () => void {
   return () => listeners.delete(listener);
 }
 
-export function isCrawling(): boolean {
-  return running;
-}
-
 /**
  * Bake all pending audio in the background. Single-flight (a second call while
  * one is running is a no-op). No-ops when generation is disabled. Best-effort —

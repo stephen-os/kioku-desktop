@@ -34,7 +34,6 @@ import type {
   UpdateCourseRequest,
   CreateLessonRequest,
   UpdateLessonRequest,
-  AddLessonItemRequest,
   ReorderLessonsRequest,
   ReorderLessonItemsRequest,
   LinkItemsResult,
@@ -48,7 +47,6 @@ import type {
   UpdateNotebookRequest,
   CreatePageRequest,
   UpdatePageRequest,
-  ReorderPagesRequest,
 } from "@/types";
 
 // ============================================
@@ -57,10 +55,6 @@ import type {
 
 export async function getAllUsers(): Promise<LocalUser[]> {
   return invoke<LocalUser[]>("get_all_users");
-}
-
-export async function getUser(userId: string): Promise<LocalUser> {
-  return invoke<LocalUser>("get_user", { userId });
 }
 
 export async function createUser(request: CreateUserRequest): Promise<LocalUser> {
@@ -85,10 +79,6 @@ export async function deleteUser(userId: string): Promise<void> {
 
 export async function updateUser(userId: string, name: string, password?: string, avatar?: string): Promise<LocalUser> {
   return invoke<LocalUser>("update_user", { userId, name, password, avatar });
-}
-
-export async function removeUserPassword(userId: string): Promise<LocalUser> {
-  return invoke<LocalUser>("remove_user_password", { userId });
 }
 
 // ============================================
@@ -160,20 +150,6 @@ export async function getCardsForDeck(deckId: string): Promise<Card[]> {
   })) as Card[];
 }
 
-export async function getCard(id: string, deckId?: string): Promise<Card | null> {
-  const card = await invoke<CardResponse | null>("get_card", { id });
-  if (!card) return null;
-
-  return {
-    ...card,
-    tags: card.tags.map((t) => ({
-      id: t.id,
-      deckId: deckId || card.deckId,
-      name: t.name,
-    })),
-  } as Card;
-}
-
 export async function createCard(
   deckId: string,
   request: CreateCardRequest
@@ -228,10 +204,6 @@ export async function createTag(deckId: string, name: string): Promise<Tag> {
   return invoke<Tag>("create_tag", { deckId, name });
 }
 
-export async function deleteTag(deckId: string, id: string): Promise<void> {
-  return invoke("delete_tag", { deckId, id });
-}
-
 export async function addTagToCard(
   deckId: string,
   cardId: string,
@@ -264,10 +236,6 @@ export async function getAllCourses(): Promise<Course[]> {
   return invoke<Course[]>("get_all_courses");
 }
 
-export async function getCourse(id: string): Promise<Course | null> {
-  return invoke<Course | null>("get_course", { id });
-}
-
 export async function getCourseWithLessons(id: string): Promise<Course | null> {
   return invoke<Course | null>("get_course_with_lessons", { id });
 }
@@ -292,14 +260,6 @@ export async function toggleCourseFavorite(courseId: string): Promise<boolean> {
 // Lesson Operations
 // ============================================
 
-export async function getLessons(courseId: string): Promise<Lesson[]> {
-  return invoke<Lesson[]>("get_lessons", { courseId });
-}
-
-export async function getLesson(lessonId: string): Promise<Lesson | null> {
-  return invoke<Lesson | null>("get_lesson", { lessonId });
-}
-
 export async function createLesson(courseId: string, request: CreateLessonRequest): Promise<Lesson> {
   return invoke<Lesson>("create_lesson", { courseId, request });
 }
@@ -320,24 +280,12 @@ export async function reorderLessons(courseId: string, request: ReorderLessonsRe
 // Lesson Item Operations
 // ============================================
 
-export async function getLessonItems(lessonId: string): Promise<LessonItem[]> {
-  return invoke<LessonItem[]>("get_lesson_items", { lessonId });
-}
-
-export async function addLessonItem(lessonId: string, request: AddLessonItemRequest): Promise<LessonItem> {
-  return invoke<LessonItem>("add_lesson_item", { lessonId, request });
-}
-
 export async function removeLessonItem(lessonItemId: string): Promise<void> {
   return invoke("remove_lesson_item", { lessonItemId });
 }
 
 export async function reorderLessonItems(lessonId: string, request: ReorderLessonItemsRequest): Promise<void> {
   return invoke("reorder_lesson_items", { lessonId, request });
-}
-
-export async function updateLessonItemReference(lessonItemId: string, itemId: string): Promise<void> {
-  return invoke("update_lesson_item_reference", { lessonItemId, itemId });
 }
 
 // ============================================
@@ -364,10 +312,6 @@ export async function recordLessonProgress(
 
 export async function clearLessonItemProgress(lessonItemId: string): Promise<void> {
   return invoke("clear_lesson_item_progress", { lessonItemId });
-}
-
-export async function getLessonProgress(courseId: string): Promise<LessonProgress[]> {
-  return invoke<LessonProgress[]>("get_lesson_progress", { courseId });
 }
 
 export async function resetCourseProgress(courseId: string): Promise<void> {
@@ -502,16 +446,8 @@ export async function getTagsForQuiz(quizId: string): Promise<QuizTag[]> {
   return invoke<QuizTag[]>("get_tags_for_quiz", { quizId });
 }
 
-export async function getTagsForQuestion(questionId: string): Promise<QuestionTag[]> {
-  return invoke<QuestionTag[]>("get_tags_for_question", { questionId });
-}
-
 export async function createQuizTag(quizId: string, name: string): Promise<QuizTag> {
   return invoke<QuizTag>("create_quiz_tag", { quizId, name });
-}
-
-export async function deleteQuizTag(quizId: string, tagId: string): Promise<void> {
-  return invoke("delete_quiz_tag", { quizId, tagId });
 }
 
 export async function addTagToQuestion(
@@ -535,23 +471,6 @@ export async function removeTagFromQuestion(
 export interface ImportResult {
   deck: Deck;
   cardsImported: number;
-}
-
-export interface DeckExport {
-  name: string;
-  description: string | null;
-  cards: CardExport[];
-  exportedAt: string;
-}
-
-export interface CardExport {
-  front: string;
-  back: string;
-  frontType: string;
-  backType: string;
-  frontLanguage: string | null;
-  backLanguage: string | null;
-  notes: string | null;
 }
 
 export async function importDeck(filePath: string): Promise<ImportResult> {
@@ -623,10 +542,6 @@ export async function deleteQuiz(quizId: string): Promise<void> {
 // Question Operations
 // ============================================
 
-export async function getQuestionsForQuiz(quizId: string): Promise<Question[]> {
-  return invoke<Question[]>("get_questions_for_quiz", { quizId });
-}
-
 export async function getQuestion(questionId: string): Promise<Question> {
   return invoke<Question>("get_question", { questionId });
 }
@@ -680,10 +595,6 @@ export async function submitQuizAttempt(
 
 export async function getQuizAttempt(attemptId: string): Promise<QuizAttempt> {
   return invoke<QuizAttempt>("get_quiz_attempt", { attemptId });
-}
-
-export async function getQuizAttempts(quizId: string): Promise<QuizAttempt[]> {
-  return invoke<QuizAttempt[]>("get_quiz_attempts", { quizId });
 }
 
 export async function getQuizStats(quizId: string): Promise<QuizStats> {
@@ -753,10 +664,6 @@ export async function getPagesForNotebook(notebookId: string): Promise<Page[]> {
   return invoke<Page[]>("get_pages_for_notebook", { notebookId });
 }
 
-export async function getPage(id: string): Promise<Page | null> {
-  return invoke<Page | null>("get_page", { id });
-}
-
 export async function createPage(notebookId: string, request: CreatePageRequest): Promise<Page> {
   return invoke<Page>("create_page", { notebookId, request });
 }
@@ -767,10 +674,6 @@ export async function updatePage(id: string, request: UpdatePageRequest): Promis
 
 export async function deletePage(id: string): Promise<void> {
   return invoke("delete_page", { id });
-}
-
-export async function reorderPages(notebookId: string, request: ReorderPagesRequest): Promise<void> {
-  return invoke("reorder_pages", { notebookId, request });
 }
 
 export async function togglePagePin(id: string): Promise<boolean> {
@@ -819,28 +722,4 @@ export async function getBacklinks(pageId: string): Promise<PageSearchResult[]> 
 
 export async function getAllPageTitles(): Promise<PageSearchResult[]> {
   return invoke<PageSearchResult[]>("get_all_page_titles");
-}
-
-// ============================================
-// Image Operations
-// ============================================
-
-export async function saveImage(base64Data: string, extension: string): Promise<string> {
-  return invoke<string>("save_image", { base64Data, extension });
-}
-
-export async function getImagePath(filename: string): Promise<string> {
-  return invoke<string>("get_image_path", { filename });
-}
-
-export async function deleteImage(filename: string): Promise<void> {
-  return invoke("delete_image", { filename });
-}
-
-export async function listImages(): Promise<string[]> {
-  return invoke<string[]>("list_images");
-}
-
-export async function getImagesDirUrl(): Promise<string> {
-  return invoke<string>("get_images_dir_url");
 }

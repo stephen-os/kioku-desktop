@@ -30,25 +30,3 @@ export function saveToStorage<T>(key: string, value: T): void {
     console.error(`Failed to save setting "${key}":`, error);
   }
 }
-
-/**
- * Remove a value from localStorage
- */
-export function removeFromStorage(key: string): void {
-  try {
-    localStorage.removeItem(key);
-  } catch (error) {
-    console.error(`Failed to remove setting "${key}":`, error);
-  }
-}
-
-/**
- * Check if a key exists in localStorage
- */
-export function existsInStorage(key: string): boolean {
-  try {
-    return localStorage.getItem(key) !== null;
-  } catch {
-    return false;
-  }
-}

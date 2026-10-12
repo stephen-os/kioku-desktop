@@ -27,7 +27,7 @@
       "csp": null,
       "assetProtocol": {
         "enable": true,
-        "scope": ["$APPDATA/tts/cache/**", "$APPDATA/images/**"]
+        "scope": ["$APPDATA/tts/cache/**"]
       }
     }
   },
@@ -55,9 +55,5 @@
       }
     }
   },
-  "plugins": {
-    "sql": {
-      "preload": ["sqlite:kioku.db"]
-    }
-  }
+  "plugins": {}
 }

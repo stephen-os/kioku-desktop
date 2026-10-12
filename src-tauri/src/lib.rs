@@ -12,20 +12,16 @@ fn init_db(app: &AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-/// Allow the asset protocol to serve the **actual** audio-cache and images
-/// directories. These follow `KIOKU_DATA_DIR` in dev, so the static
-/// `$APPDATA/...` scope in tauri.conf.json isn't enough — without this, baked
-/// WAVs in a dev data dir are blocked and playback silently falls back to the
-/// system voice.
+/// Allow the asset protocol to serve the **actual** audio-cache directory. It
+/// follows `KIOKU_DATA_DIR` in dev, so the static `$APPDATA/...` scope in
+/// tauri.conf.json isn't enough — without this, baked WAVs in a dev data dir
+/// are blocked and playback silently falls back to the system voice.
 fn allow_asset_dirs(app: &AppHandle) {
     if let Ok(base) = db::app_data_base(app) {
         let cache = base.join("tts").join("cache");
-        let images = base.join("images");
         let _ = std::fs::create_dir_all(&cache);
-        let _ = std::fs::create_dir_all(&images);
         let scope = app.asset_protocol_scope();
         let _ = scope.allow_directory(&cache, true);
-        let _ = scope.allow_directory(&images, true);
     }
 }
 
@@ -66,7 +62,6 @@ pub fn run() {
             commands::decks::delete_card,
             // Tag commands
             commands::decks::get_tags_for_deck,
-            commands::decks::get_tags_for_card,
             commands::decks::create_tag,
             commands::decks::delete_tag,
             commands::decks::add_tag_to_card,
@@ -167,7 +162,6 @@ pub fn run() {
             commands::tts::install_tts,
             commands::tts::uninstall_tts,
             commands::tts::get_tts_storage_size,
-            commands::tts::synthesize_tts,
             commands::tts::get_installed_tts_langs,
             commands::tts::download_tts_models,
             commands::tts::get_tts_generation_enabled,
@@ -202,12 +196,6 @@ pub fn run() {
             // Backlinks commands
             commands::notebooks::get_backlinks,
             commands::notebooks::get_all_page_titles,
-            // Image commands
-            commands::images::save_image,
-            commands::images::get_image_path,
-            commands::images::delete_image,
-            commands::images::list_images,
-            commands::images::get_images_dir_url,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
