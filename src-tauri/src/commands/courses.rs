@@ -11,6 +11,28 @@ use crate::db::{
 };
 use crate::db::CreateChoiceRequest;
 
+/// Run `f` inside a SQLite transaction: commit on success, roll back on error.
+/// The course content commands write several rows across tables, and this keeps
+/// a mid-sequence failure from leaving orphaned or half-copied content.
+fn with_tx<T>(
+    conn: &rusqlite::Connection,
+    f: impl FnOnce() -> Result<T, String>,
+) -> Result<T, String> {
+    conn.execute("BEGIN TRANSACTION", [])
+        .map_err(|e| format!("Failed to begin transaction: {}", e))?;
+    match f() {
+        Ok(v) => {
+            conn.execute("COMMIT", [])
+                .map_err(|e| format!("Failed to commit transaction: {}", e))?;
+            Ok(v)
+        }
+        Err(e) => {
+            let _ = conn.execute("ROLLBACK", []);
+            Err(e)
+        }
+    }
+}
+
 // ============================================
 // Course Commands
 // ============================================
@@ -206,33 +228,42 @@ pub fn add_lesson_item(
 pub fn remove_lesson_item(state: State<DbState>, lesson_item_id: String) -> Result<(), String> {
     let conn = state.0.lock().map_err(|e| format!("Lock error: {}", e))?;
 
-    // Delete the course-owned content this item points at, then the item itself.
-    let row: Option<(String, Option<String>)> = conn
-        .query_row(
-            "SELECT item_type, item_id FROM lesson_items WHERE id = ?1",
-            params![lesson_item_id],
-            |r| Ok((r.get(0)?, r.get(1)?)),
-        )
-        .ok();
-    if let Some((item_type, Some(item_id))) = row {
-        match item_type.as_str() {
-            "deck" => db::delete_course_deck(&conn, &item_id)?,
-            "quiz" => db::delete_course_quiz(&conn, &item_id)?,
-            "note" => {
-                // item_id is a course_page; delete its owning notebook (cascades the page).
-                if let Ok(nb) = conn.query_row(
-                    "SELECT course_notebook_id FROM course_pages WHERE id = ?1",
-                    params![item_id],
-                    |r| r.get::<_, String>(0),
-                ) {
-                    db::delete_course_notebook(&conn, &nb)?;
-                }
-            }
-            _ => {}
-        }
-    }
+    // Look up the content this item points at. A missing row means "nothing to
+    // do"; a real query error is surfaced rather than silently swallowed.
+    let row: Option<(String, Option<String>)> = match conn.query_row(
+        "SELECT item_type, item_id FROM lesson_items WHERE id = ?1",
+        params![lesson_item_id],
+        |r| Ok((r.get(0)?, r.get(1)?)),
+    ) {
+        Ok(v) => Some(v),
+        Err(rusqlite::Error::QueryReturnedNoRows) => None,
+        Err(e) => return Err(format!("Failed to look up lesson item: {}", e)),
+    };
 
-    db::remove_lesson_item(&conn, &lesson_item_id)
+    // Delete the course-owned content and the lesson item atomically.
+    with_tx(&conn, || {
+        if let Some((item_type, Some(item_id))) = row {
+            match item_type.as_str() {
+                "deck" => db::delete_course_deck(&conn, &item_id)?,
+                "quiz" => db::delete_course_quiz(&conn, &item_id)?,
+                "note" => {
+                    // item_id is a course_page; delete its owning notebook (cascades the page).
+                    match conn.query_row(
+                        "SELECT course_notebook_id FROM course_pages WHERE id = ?1",
+                        params![item_id],
+                        |r| r.get::<_, String>(0),
+                    ) {
+                        Ok(nb) => db::delete_course_notebook(&conn, &nb)?,
+                        Err(rusqlite::Error::QueryReturnedNoRows) => {}
+                        Err(e) => return Err(format!("Failed to look up note notebook: {}", e)),
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        db::remove_lesson_item(&conn, &lesson_item_id)
+    })
 }
 
 /// Create a lesson item backed by course-owned content — either copied from a
@@ -266,50 +297,59 @@ pub fn course_add_item(
             .ok_or_else(|| "A source item is required to copy from the library".to_string())
     };
 
-    let content_id = match (item_type.as_str(), mode.as_str()) {
-        ("deck", "library") => db::copy_deck_to_course(&conn, &course_id, &src()?)?,
-        ("deck", _) => db::create_course_deck(&conn, &course_id, &name, None, false)?,
-        ("quiz", "library") => db::copy_quiz_to_course(&conn, &course_id, &src()?)?,
-        ("quiz", _) => db::create_course_quiz(&conn, &course_id, &name, None, false)?,
-        ("note", "library") => db::copy_page_to_course(&conn, &course_id, &src()?)?,
-        ("note", _) => {
-            let nb = db::create_course_notebook(&conn, &course_id, &name, None)?;
-            db::create_course_page(&conn, &nb, &name, "", 0)?
-        }
-        _ => return Err(format!("Unsupported lesson item type: {}", item_type)),
-    };
+    // Create the content and link it as a lesson item atomically, so a failure
+    // can't orphan course-owned content with no lesson item pointing at it.
+    with_tx(&conn, || {
+        let content_id = match (item_type.as_str(), mode.as_str()) {
+            ("deck", "library") => db::copy_deck_to_course(&conn, &course_id, &src()?)?,
+            ("deck", "blank") => db::create_course_deck(&conn, &course_id, &name, None, false)?,
+            ("quiz", "library") => db::copy_quiz_to_course(&conn, &course_id, &src()?)?,
+            ("quiz", "blank") => db::create_course_quiz(&conn, &course_id, &name, None, false)?,
+            ("note", "library") => db::copy_page_to_course(&conn, &course_id, &src()?)?,
+            ("note", "blank") => {
+                let nb = db::create_course_notebook(&conn, &course_id, &name, None)?;
+                db::create_course_page(&conn, &nb, &name, "", 0)?
+            }
+            _ => {
+                return Err(format!(
+                    "Unsupported lesson item type/mode: {}/{}",
+                    item_type, mode
+                ))
+            }
+        };
 
-    db::add_lesson_item(
-        &conn,
-        &lesson_id,
-        &item_type,
-        &name,
-        Some(&content_id),
-        requirement_type.as_deref(),
-        requirement_value,
-        None,
-    )
+        db::add_lesson_item(
+            &conn,
+            &lesson_id,
+            &item_type,
+            &name,
+            Some(&content_id),
+            requirement_type.as_deref(),
+            requirement_value,
+            None,
+        )
+    })
 }
 
 #[tauri::command]
 pub fn adopt_course_deck(state: State<DbState>, course_deck_id: String) -> Result<String, String> {
     let conn = state.0.lock().map_err(|e| format!("Lock error: {}", e))?;
     let user = db::get_active_user(&conn)?.ok_or_else(|| "No active user".to_string())?;
-    db::adopt_course_deck(&conn, &user.id, &course_deck_id)
+    with_tx(&conn, || db::adopt_course_deck(&conn, &user.id, &course_deck_id))
 }
 
 #[tauri::command]
 pub fn adopt_course_quiz(state: State<DbState>, course_quiz_id: String) -> Result<String, String> {
     let conn = state.0.lock().map_err(|e| format!("Lock error: {}", e))?;
     let user = db::get_active_user(&conn)?.ok_or_else(|| "No active user".to_string())?;
-    db::adopt_course_quiz(&conn, &user.id, &course_quiz_id)
+    with_tx(&conn, || db::adopt_course_quiz(&conn, &user.id, &course_quiz_id))
 }
 
 #[tauri::command]
 pub fn adopt_course_page(state: State<DbState>, course_page_id: String) -> Result<String, String> {
     let conn = state.0.lock().map_err(|e| format!("Lock error: {}", e))?;
     let user = db::get_active_user(&conn)?.ok_or_else(|| "No active user".to_string())?;
-    db::adopt_course_page(&conn, &user.id, &course_page_id)
+    with_tx(&conn, || db::adopt_course_page(&conn, &user.id, &course_page_id))
 }
 
 /// Grade a course quiz in-memory (not persisted to quiz_attempts) and return a
