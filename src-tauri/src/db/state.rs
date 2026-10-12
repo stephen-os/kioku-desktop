@@ -73,8 +73,18 @@ pub fn init_database(app: &AppHandle) -> Result<Connection, String> {
         .query_row("SELECT COUNT(*) FROM users", [], |r| r.get(0))
         .unwrap_or(0);
     if user_count == 0 {
-        if let Err(e) = super::seed::seed_demo(&conn) {
-            eprintln!("Warning: demo seed failed: {}", e);
+        // Seed atomically: a mid-seed failure must roll back the Demo user row,
+        // otherwise the `user_count == 0` guard would never re-seed on the next
+        // launch and the app would start with a half-populated profile.
+        let _ = conn.execute("BEGIN TRANSACTION", []);
+        match super::seed::seed_demo(&conn) {
+            Ok(()) => {
+                let _ = conn.execute("COMMIT", []);
+            }
+            Err(e) => {
+                let _ = conn.execute("ROLLBACK", []);
+                eprintln!("Warning: demo seed failed: {}", e);
+            }
         }
     }
 
