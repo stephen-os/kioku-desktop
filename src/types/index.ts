@@ -218,16 +218,6 @@ export const CODE_LANGUAGES: CodeLanguage[] = [
 export type LoopMode = 'none' | 'all' | 'single';
 export type AutoplayPhase = 'idle' | 'front' | 'pause' | 'back' | 'transition';
 
-export interface AutoplaySettings {
-  voice: string;
-  pauseDuration: number; // seconds (0-60)
-  volume: number; // 0-1
-  loopMode: LoopMode;
-  isShuffled: boolean;
-  showFront: boolean; // whether to display/read front of card
-  showBack: boolean; // whether to display/read back of card
-}
-
 export interface TTSVoice {
   id: string;
   name: string;
@@ -626,8 +616,6 @@ export interface UpdatePageRequest {
 export interface ReorderPagesRequest {
   pageIds: string[];
 }
-
-export type NotesViewMode = 'card' | 'list';
 
 // ============================================
 // App Settings Types
