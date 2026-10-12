@@ -231,7 +231,6 @@ export function useAutoplay({ cards, onComplete }: UseAutoplayOptions): UseAutop
       return new Promise((resolve) => {
         const duration = pauseDurationRef.current;
 
-        // If duration is 0, resolve immediately
         if (duration <= 0) {
           setPauseTimeRemaining(0);
           resolve();

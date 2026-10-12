@@ -186,15 +186,12 @@ pub fn delete_user(conn: &Connection, user_id: &str) -> Result<(), String> {
         }
     }
 
-    // Delete decks owned by this user
     conn.execute("DELETE FROM decks WHERE user_id = ?1", params![user_id])
         .map_err(|e| format!("Failed to delete user decks: {}", e))?;
 
-    // Delete quizzes owned by this user
     conn.execute("DELETE FROM quizzes WHERE user_id = ?1", params![user_id])
         .map_err(|e| format!("Failed to delete user quizzes: {}", e))?;
 
-    // Delete the user
     conn.execute("DELETE FROM users WHERE id = ?1", params![user_id])
         .map_err(|e| format!("Failed to delete user: {}", e))?;
 

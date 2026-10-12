@@ -168,7 +168,6 @@ fn grade_answer(conn: &Connection, question_id: &str, user_answer: &str) -> Resu
             let mut correct_sorted = correct_ids.clone();
             correct_sorted.sort();
 
-            // Compare
             Ok(user_ids == correct_sorted.iter().map(|s| s.as_str()).collect::<Vec<_>>())
         }
         _ => Ok(false),

@@ -128,7 +128,6 @@ function isJsonContent(content: string): boolean {
   return trimmed.startsWith("[") && trimmed.endsWith("]");
 }
 
-// Convert file to data URL (keeps full data:image/xxx;base64,... format)
 async function fileToDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -241,6 +240,9 @@ export function NotesBlockEditor({ initialContent, onChange, onSave, editable = 
       onChangeRef.current(content);
     };
 
+    // onEditorContentChange returns void in this BlockNote version (no
+    // unsubscribe handle); the listener lives with the editor and is torn down
+    // when the editor is destroyed on unmount.
     editor.onEditorContentChange(handleChange);
   }, [editor]);
 

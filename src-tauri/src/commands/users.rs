@@ -5,9 +5,8 @@ use crate::db::{self, CreateUserRequest, DbState, LocalUser};
 
 /// SECURITY: resolve the logged-in user and confirm the request targets their
 /// own record. Default-deny: no active user, or a mismatch, is rejected. This
-/// is the Rust-side authorization gate for self-service account commands, which
-/// previously trusted the (client-only) React login state and would operate on
-/// any profile by id.
+/// is the Rust-side authorization gate for self-service account commands — the
+/// front-end login state is not trusted for authorization.
 fn require_self(conn: &Connection, target_user_id: &str) -> Result<(), String> {
     let active = db::get_active_user(conn)?.ok_or_else(|| "No active user".to_string())?;
     if active.id != target_user_id {

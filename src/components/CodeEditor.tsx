@@ -29,7 +29,6 @@ import { dockerFile } from "@codemirror/legacy-modes/mode/dockerfile";
 import { toml } from "@codemirror/legacy-modes/mode/toml";
 import type { CodeLanguage } from "@/types";
 
-// Get the CodeMirror language extension for a given language
 function getLanguageExtension(language: CodeLanguage | null | undefined) {
   switch (language) {
     case "JAVASCRIPT":
