@@ -33,7 +33,8 @@ const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 /// together with `EXPECTED_TTS_SHA256` below — the two placeholders are a pair.
 /// Shipping a real URL without the matching hash (or vice versa) is a mistake:
 /// `install_tts` fails closed if either is still a placeholder.
-const KIOKU_TTS_RELEASE_URL: &str = "TODO_SET_AFTER_HOSTING";
+const KIOKU_TTS_RELEASE_URL: &str =
+    "https://github.com/stephen-os/kioku-desktop/releases/download/tts-engine-v1.0.0/kioku-tts-windows.zip";
 
 /// SECURITY: pinned lowercase hex SHA-256 of the exact release ZIP named by
 /// `KIOKU_TTS_RELEASE_URL`. The downloaded archive is verified against this
@@ -41,7 +42,8 @@ const KIOKU_TTS_RELEASE_URL: &str = "TODO_SET_AFTER_HOSTING";
 /// compromised release host / account / CDN cannot deliver a trojaned engine.
 /// MUST be set in lockstep with `KIOKU_TTS_RELEASE_URL` (see the note above);
 /// until the artifact is hosted both stay placeholders and install is disabled.
-const EXPECTED_TTS_SHA256: &str = "TODO_SET_AFTER_HOSTING";
+const EXPECTED_TTS_SHA256: &str =
+    "489f6878c8bb5d1cf73a98fcd9d2da3f8f1d39fe6c3f265f6495eee15cb7e8d7";
 
 /// Progress payload emitted on the `tts-download-progress` event during install.
 #[derive(Debug, Clone, Serialize, Deserialize)]
