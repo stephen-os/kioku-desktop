@@ -60,6 +60,14 @@ pub fn init_database(app: &AppHandle) -> Result<Connection, String> {
         [],
     );
 
+    // Close any study sessions left open by a hard app-close (a clean in-app
+    // navigate-away already ends them). Stats ignore un-ended sessions, so this
+    // is just tidiness — mark them ended at their start with zero duration.
+    let _ = conn.execute(
+        "UPDATE study_sessions SET ended_at = started_at, duration_seconds = 0 WHERE ended_at IS NULL",
+        [],
+    );
+
     // First run (no users): seed the Demo profile + an owned-content course.
     let user_count: i64 = conn
         .query_row("SELECT COUNT(*) FROM users", [], |r| r.get(0))

@@ -218,10 +218,17 @@ function AdoptButton({
     <button
       onClick={() => onAdopt(item)}
       disabled={adopting}
-      className="text-xs px-2.5 py-1.5 rounded-md text-[#c1c0c0] hover:text-[#fcfcfa] hover:bg-[#5b595c] transition-colors disabled:opacity-50 shrink-0"
+      className="p-1.5 rounded-md text-[#c1c0c0] hover:text-[#fcfcfa] hover:bg-[#5b595c] transition-colors disabled:opacity-50 shrink-0"
       title="Save a personal, editable copy to your library"
+      aria-label="Save a personal copy to your library"
     >
-      {adopting ? "Saving…" : "Save copy"}
+      {adopting ? (
+        <span className="block w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
+      ) : (
+        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 11l5 5 5-5M12 16V4" />
+        </svg>
+      )}
     </button>
   );
 }

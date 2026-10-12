@@ -616,9 +616,12 @@ function LessonItemCard({ item, index, courseId, lessonId, isLocked, onToggleCom
             <button
               onClick={onAdopt}
               title="Save a personal, editable copy to your library"
-              className="px-2 py-1 text-xs text-[#939293] hover:text-[#fcfcfa] hover:bg-[#5b595c] rounded transition-colors"
+              aria-label="Save a personal copy to your library"
+              className="p-1.5 text-[#939293] hover:text-[#fcfcfa] hover:bg-[#5b595c] rounded transition-colors"
             >
-              Save copy
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 11l5 5 5-5M12 16V4" />
+              </svg>
             </button>
             <Link
               to={studyPath}
