@@ -40,6 +40,16 @@ export function getQuizFilename(name: string): string {
 }
 
 /**
+ * Generates a filename for course export.
+ * @example
+ * getCourseFilename("My Course") // "my-course.json"
+ */
+export function getCourseFilename(name: string): string {
+  const slug = toSlug(name);
+  return `${slug || "course"}.json`;
+}
+
+/**
  * Generates a filename for bulk export ZIP.
  * @example
  * getBulkExportFilename() // "kioku-export-2026-02-22.zip"

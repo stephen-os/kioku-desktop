@@ -1,5 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
+import { save } from "@tauri-apps/plugin-dialog";
+import { writeTextFile } from "@tauri-apps/plugin-fs";
 import type { Course, Lesson, LessonItem } from "@/types";
 import {
   getCourseWithLessons,
@@ -11,7 +13,9 @@ import {
   adoptCourseDeck,
   adoptCourseQuiz,
   adoptCoursePage,
+  exportCourse,
 } from "@/lib/db";
+import { getCourseFilename } from "@/lib/slug";
 import { FavoriteButton, BackButton } from "@/components";
 import { useToast } from "@/context/ToastContext";
 
@@ -41,6 +45,7 @@ export function CourseView() {
   const [deleting, setDeleting] = useState(false);
   const [expandedLessons, setExpandedLessons] = useState<Set<string>>(new Set());
   const [linking, setLinking] = useState(false);
+  const [exporting, setExporting] = useState(false);
 
   const loadCourse = useCallback(async (): Promise<void> => {
     if (!id) return;
@@ -90,6 +95,27 @@ export function CourseView() {
       loadCourse();
     } catch (error) {
       toast.error("Failed to update favorite");
+    }
+  };
+
+  const handleExport = async (): Promise<void> => {
+    if (!id || !course) return;
+    setExporting(true);
+    try {
+      const exportData = await exportCourse(id);
+      const filePath = await save({
+        defaultPath: getCourseFilename(course.name),
+        filters: [{ name: "JSON", extensions: ["json"] }],
+      });
+      if (filePath) {
+        await writeTextFile(filePath, exportData);
+        toast.success("Course exported");
+      }
+    } catch (error) {
+      console.error("Failed to export course:", error);
+      toast.error("Failed to export course");
+    } finally {
+      setExporting(false);
     }
   };
 
@@ -234,6 +260,13 @@ export function CourseView() {
                 >
                   Edit
                 </Link>
+                <button
+                  onClick={handleExport}
+                  disabled={exporting}
+                  className="px-3 py-2 bg-[#78dce8]/20 text-[#78dce8] text-sm rounded-lg hover:bg-[#78dce8]/30 transition-colors font-medium disabled:opacity-50"
+                >
+                  {exporting ? "Exporting..." : "Export"}
+                </button>
                 {showDeleteConfirm ? (
                   <div className="flex gap-1">
                     <button

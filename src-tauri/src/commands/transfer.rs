@@ -475,6 +475,8 @@ pub fn import_course_from_file(
         decks: Vec<DeckImport>,
         #[serde(default)]
         quizzes: Vec<QuizImport>,
+        #[serde(default)]
+        notes: Vec<NoteImport>,
     }
 
     #[derive(serde::Deserialize)]
@@ -519,8 +521,6 @@ pub fn import_course_from_file(
         notes: Option<String>,
         front_tts_lang: Option<String>,
         back_tts_lang: Option<String>,
-        #[serde(default)]
-        tags: Vec<String>,
     }
 
     #[derive(serde::Deserialize)]
@@ -548,8 +548,6 @@ pub fn import_course_from_file(
         multiple_answers: bool,
         correct_answer: Option<String>,
         explanation: Option<String>,
-        #[serde(default)]
-        tags: Vec<String>,
     }
 
     #[derive(serde::Deserialize)]
@@ -558,6 +556,14 @@ pub fn import_course_from_file(
         text: String,
         #[serde(default)]
         is_correct: bool,
+    }
+
+    #[derive(serde::Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct NoteImport {
+        name: String,
+        #[serde(default)]
+        content: String,
     }
 
     fn default_text() -> String {
@@ -576,22 +582,29 @@ pub fn import_course_from_file(
         .map_err(|e| format!("Failed to begin transaction: {}", e))?;
 
     let result = (|| -> Result<CourseImportResult, String> {
-        // Track imported items by name -> id
+        // All content is course-owned (course_* tables). Lesson items reference
+        // it by name within this bundle; nothing is written to the library.
+        let course = db::create_course(
+            &conn,
+            &active_user.id,
+            &import_data.name,
+            import_data.description.as_deref(),
+        )?;
+
+        // name -> course-owned content id, per content kind
         let mut deck_map: std::collections::HashMap<String, String> = std::collections::HashMap::new();
         let mut quiz_map: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+        let mut note_map: std::collections::HashMap<String, String> = std::collections::HashMap::new();
 
-        // First, import all embedded decks
+        // Decks. Course content carries no tags, so card tags are dropped.
         for deck_import in &import_data.decks {
-            let deck = db::create_deck(
+            let deck_id = db::create_course_deck(
                 &conn,
-                &active_user.id,
+                &course.id,
                 &deck_import.name,
                 deck_import.description.as_deref(),
                 deck_import.shuffle_cards,
             )?;
-
-            let mut tag_cache: std::collections::HashMap<String, String> = std::collections::HashMap::new();
-
             for card in &deck_import.cards {
                 let request = CreateCardRequest {
                     front: card.front.clone(),
@@ -604,37 +617,20 @@ pub fn import_course_from_file(
                     front_tts_lang: card.front_tts_lang.clone(),
                     back_tts_lang: card.back_tts_lang.clone(),
                 };
-                let created_card = db::create_card(&conn, &deck.id, &request)?;
-
-                for tag_name in &card.tags {
-                    let tag_id = if let Some(id) = tag_cache.get(tag_name) {
-                        id.clone()
-                    } else {
-                        let tag = match db::get_tag_by_name(&conn, &deck.id, tag_name)? {
-                            Some(existing) => existing,
-                            None => db::create_tag(&conn, &deck.id, tag_name)?,
-                        };
-                        tag_cache.insert(tag_name.clone(), tag.id.clone());
-                        tag.id
-                    };
-                    let _ = db::add_tag_to_card(&conn, &deck.id, &created_card.id, &tag_id);
-                }
+                db::create_course_card_from_request(&conn, &deck_id, &request)?;
             }
-
-            deck_map.insert(deck_import.name.clone(), deck.id);
+            deck_map.insert(deck_import.name.clone(), deck_id);
         }
 
-        // Then, import all embedded quizzes
+        // Quizzes. Question tags are likewise dropped.
         for quiz_import in &import_data.quizzes {
-            let quiz_request = CreateQuizRequest {
-                name: quiz_import.name.clone(),
-                description: quiz_import.description.clone(),
-                shuffle_questions: Some(quiz_import.shuffle_questions),
-            };
-            let quiz = db::create_quiz(&conn, &active_user.id, &quiz_request)?;
-
-            let mut tag_cache: std::collections::HashMap<String, String> = std::collections::HashMap::new();
-
+            let quiz_id = db::create_course_quiz(
+                &conn,
+                &course.id,
+                &quiz_import.name,
+                quiz_import.description.as_deref(),
+                quiz_import.shuffle_questions,
+            )?;
             for question in &quiz_import.questions {
                 let question_request = CreateQuestionRequest {
                     question_type: question.question_type.clone(),
@@ -655,51 +651,28 @@ pub fn import_course_from_file(
                             .collect(),
                     ),
                 };
-                let created_question = db::create_question(&conn, &quiz.id, &question_request)?;
-
-                for tag_name in &question.tags {
-                    let tag_id = if let Some(id) = tag_cache.get(tag_name) {
-                        id.clone()
-                    } else {
-                        let tag = match db::get_quiz_tag_by_name(&conn, &quiz.id, tag_name)? {
-                            Some(existing) => existing,
-                            None => db::create_quiz_tag(&conn, &quiz.id, tag_name)?,
-                        };
-                        tag_cache.insert(tag_name.clone(), tag.id.clone());
-                        tag.id
-                    };
-                    let _ = db::add_tag_to_question(&conn, &created_question.id, &tag_id);
-                }
+                db::create_course_question_from_request(&conn, &quiz_id, &question_request)?;
             }
-
-            quiz_map.insert(quiz_import.name.clone(), quiz.id);
+            quiz_map.insert(quiz_import.name.clone(), quiz_id);
         }
 
-        // Also check existing decks/quizzes for items not in the bundle
-        let all_decks = db::get_all_decks(&conn, &active_user.id)?;
-        let all_quizzes = db::get_all_quizzes(&conn, &active_user.id)?;
-        for deck in &all_decks {
-            if !deck_map.contains_key(&deck.name) {
-                deck_map.insert(deck.name.clone(), deck.id.clone());
-            }
+        // Notes — each becomes its own notebook holding a single page.
+        for note_import in &import_data.notes {
+            let notebook_id =
+                db::create_course_notebook(&conn, &course.id, &note_import.name, None)?;
+            let page_id = db::create_course_page(
+                &conn,
+                &notebook_id,
+                &note_import.name,
+                &note_import.content,
+                0,
+            )?;
+            note_map.insert(note_import.name.clone(), page_id);
         }
-        for quiz in &all_quizzes {
-            if !quiz_map.contains_key(&quiz.name) {
-                quiz_map.insert(quiz.name.clone(), quiz.id.clone());
-            }
-        }
-
-        // Now create the course
-        let course = db::create_course(
-            &conn,
-            &active_user.id,
-            &import_data.name,
-            import_data.description.as_deref(),
-        )?;
 
         let mut total_items_linked = 0;
 
-        // Create lessons and link items
+        // Create lessons and link items to the course-owned content above.
         for (lesson_pos, lesson_import) in import_data.lessons.iter().enumerate() {
             let lesson = db::create_lesson(
                 &conn,
@@ -713,6 +686,7 @@ pub fn import_course_from_file(
                 let item_id = match item.item_type.as_str() {
                     "deck" => deck_map.get(&item.name).cloned(),
                     "quiz" => quiz_map.get(&item.name).cloned(),
+                    "note" => note_map.get(&item.name).cloned(),
                     _ => None,
                 };
 
@@ -776,6 +750,7 @@ pub fn export_course_to_json(state: State<DbState>, course_id: String) -> Result
         lessons: Vec<LessonExport>,
         decks: Vec<DeckExport>,
         quizzes: Vec<QuizExport>,
+        notes: Vec<NoteExport>,
         exported_at: String,
     }
 
@@ -865,9 +840,17 @@ pub fn export_course_to_json(state: State<DbState>, course_id: String) -> Result
         is_correct: bool,
     }
 
-    // Collect all deck and quiz IDs referenced in the course
+    #[derive(serde::Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct NoteExport {
+        name: String,
+        content: String,
+    }
+
+    // Collect the course-owned content ids referenced by lesson items.
     let mut deck_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
     let mut quiz_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut note_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
 
     for lesson in &course.lessons {
         for item in &lesson.items {
@@ -875,46 +858,50 @@ pub fn export_course_to_json(state: State<DbState>, course_id: String) -> Result
                 match item.item_type {
                     db::LessonItemType::Deck => { deck_ids.insert(item_id.clone()); }
                     db::LessonItemType::Quiz => { quiz_ids.insert(item_id.clone()); }
-                    // TODO: course JSON export/import predates course-owned content
-                    // and still reads the personal library; notes aren't handled.
-                    db::LessonItemType::Note => {}
+                    db::LessonItemType::Note => { note_ids.insert(item_id.clone()); }
                 }
             }
         }
     }
 
-    // Export all referenced decks
+    // Export referenced decks (course-owned). Track id -> exported name so the
+    // lesson items below serialize the same name the content was saved under.
     let mut decks_export: Vec<DeckExport> = Vec::new();
-    for deck_id in deck_ids {
-        if let Some(deck) = db::get_deck(&conn, &active_user.id, &deck_id)? {
-            let cards = db::get_cards_for_deck(&conn, &deck_id)?;
-            decks_export.push(DeckExport {
-                name: deck.name,
-                description: deck.description,
-                shuffle_cards: deck.shuffle_cards,
-                cards: cards
-                    .into_iter()
-                    .map(|c| CardExport {
-                        front: c.front,
-                        back: c.back,
-                        front_type: c.front_type,
-                        back_type: c.back_type,
-                        front_language: c.front_language,
-                        back_language: c.back_language,
-                        notes: c.notes,
-                        front_tts_lang: c.front_tts_lang,
-                        back_tts_lang: c.back_tts_lang,
-                        tags: c.tags.into_iter().map(|t| t.name).collect(),
-                    })
-                    .collect(),
-            });
-        }
+    let mut deck_name_by_id: std::collections::HashMap<String, String> =
+        std::collections::HashMap::new();
+    for deck_id in &deck_ids {
+        let deck = db::get_course_deck(&conn, deck_id)?;
+        let cards = db::get_course_cards(&conn, deck_id)?;
+        deck_name_by_id.insert(deck_id.clone(), deck.name.clone());
+        decks_export.push(DeckExport {
+            name: deck.name,
+            description: deck.description,
+            shuffle_cards: deck.shuffle_cards,
+            cards: cards
+                .into_iter()
+                .map(|c| CardExport {
+                    front: c.front,
+                    back: c.back,
+                    front_type: c.front_type,
+                    back_type: c.back_type,
+                    front_language: c.front_language,
+                    back_language: c.back_language,
+                    notes: c.notes,
+                    front_tts_lang: c.front_tts_lang,
+                    back_tts_lang: c.back_tts_lang,
+                    tags: Vec::new(),
+                })
+                .collect(),
+        });
     }
 
-    // Export all referenced quizzes
+    // Export referenced quizzes (course-owned).
     let mut quizzes_export: Vec<QuizExport> = Vec::new();
-    for quiz_id in quiz_ids {
-        let quiz = db::get_quiz(&conn, &active_user.id, &quiz_id)?;
+    let mut quiz_name_by_id: std::collections::HashMap<String, String> =
+        std::collections::HashMap::new();
+    for quiz_id in &quiz_ids {
+        let quiz = db::get_course_quiz(&conn, quiz_id)?;
+        quiz_name_by_id.insert(quiz_id.clone(), quiz.name.clone());
         quizzes_export.push(QuizExport {
             name: quiz.name,
             description: quiz.description,
@@ -941,9 +928,22 @@ pub fn export_course_to_json(state: State<DbState>, course_id: String) -> Result
                         .collect(),
                     multiple_answers: q.multiple_answers,
                     explanation: q.explanation,
-                    tags: q.tags.into_iter().map(|t| t.name).collect(),
+                    tags: Vec::new(),
                 })
                 .collect(),
+        });
+    }
+
+    // Export referenced notes (course-owned pages).
+    let mut notes_export: Vec<NoteExport> = Vec::new();
+    let mut note_name_by_id: std::collections::HashMap<String, String> =
+        std::collections::HashMap::new();
+    for note_id in &note_ids {
+        let page = db::get_course_page(&conn, note_id)?;
+        note_name_by_id.insert(note_id.clone(), page.title.clone());
+        notes_export.push(NoteExport {
+            name: page.title,
+            content: page.content,
         });
     }
 
@@ -959,27 +959,52 @@ pub fn export_course_to_json(state: State<DbState>, course_id: String) -> Result
                 items: lesson
                     .items
                     .into_iter()
-                    .map(|item| LessonItemExport {
-                        item_type: match item.item_type {
+                    .map(|item| {
+                        // Serialize the item under the name its content was
+                        // exported with, so import re-links even if the
+                        // lesson-item label and content name have drifted.
+                        let name = match &item.item_type {
+                            db::LessonItemType::Deck => item
+                                .item_id
+                                .as_ref()
+                                .and_then(|id| deck_name_by_id.get(id))
+                                .cloned(),
+                            db::LessonItemType::Quiz => item
+                                .item_id
+                                .as_ref()
+                                .and_then(|id| quiz_name_by_id.get(id))
+                                .cloned(),
+                            db::LessonItemType::Note => item
+                                .item_id
+                                .as_ref()
+                                .and_then(|id| note_name_by_id.get(id))
+                                .cloned(),
+                        }
+                        .unwrap_or(item.item_name);
+                        let item_type = match item.item_type {
                             db::LessonItemType::Deck => "deck".to_string(),
                             db::LessonItemType::Quiz => "quiz".to_string(),
                             db::LessonItemType::Note => "note".to_string(),
-                        },
-                        name: item.item_name,
-                        requirement_type: item.requirement_type.map(|rt| match rt {
-                            db::RequirementType::Study => "study".to_string(),
-                            db::RequirementType::Review => "review".to_string(),
-                            db::RequirementType::Complete => "complete".to_string(),
-                            db::RequirementType::MinScore => "min_score".to_string(),
-                            db::RequirementType::Read => "read".to_string(),
-                        }),
-                        requirement_value: item.requirement_value,
+                        };
+                        LessonItemExport {
+                            item_type,
+                            name,
+                            requirement_type: item.requirement_type.map(|rt| match rt {
+                                db::RequirementType::Study => "study".to_string(),
+                                db::RequirementType::Review => "review".to_string(),
+                                db::RequirementType::Complete => "complete".to_string(),
+                                db::RequirementType::MinScore => "min_score".to_string(),
+                                db::RequirementType::Read => "read".to_string(),
+                            }),
+                            requirement_value: item.requirement_value,
+                        }
                     })
                     .collect(),
             })
             .collect(),
         decks: decks_export,
         quizzes: quizzes_export,
+        notes: notes_export,
         exported_at: chrono::Utc::now().to_rfc3339(),
     };
 

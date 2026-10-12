@@ -230,16 +230,18 @@ function ImportSection() {
 
       <h3 className="text-lg font-medium text-[#ffd866] mt-6 mb-3">Importing</h3>
       <p className="text-[#939293] mb-3">
-        Import decks or quizzes from JSON files:
+        Import decks, quizzes, or whole courses from JSON files:
       </p>
       <ul className="text-[#939293] space-y-1">
         <li>Click <span className="text-[#5b595c] bg-[#5b595c]/30 px-2 py-0.5 rounded">Import Deck</span> or <span className="text-[#5b595c] bg-[#5b595c]/30 px-2 py-0.5 rounded">Import Quiz</span></li>
-        <li>Or drag and drop a JSON file onto the page</li>
+        <li>Click <span className="text-[#5b595c] bg-[#5b595c]/30 px-2 py-0.5 rounded">Import Course</span> on the Courses page for a full course bundle</li>
+        <li>Or drag and drop a JSON file onto the matching page</li>
       </ul>
 
       <h3 className="text-lg font-medium text-[#ffd866] mt-6 mb-3">Exporting</h3>
       <p className="text-[#939293] mb-3">
-        Export decks from Settings → Data Management. Select a deck and save as JSON.
+        Export a deck or quiz from its page (or several at once from Settings → Data
+        Management), and a course from its page using the Export button.
       </p>
 
       <h3 className="text-lg font-medium text-[#ffd866] mt-6 mb-3">Deck JSON Schema</h3>
@@ -374,6 +376,77 @@ function ImportSection() {
   ]
 }`}
       />
+
+      <h3 className="text-lg font-medium text-[#ffd866] mt-6 mb-3">Course JSON Schema</h3>
+      <p className="text-[#939293] mb-3 text-sm">
+        A course bundles its own lessons and content. On import, the decks, quizzes, and
+        notes below are copied into the course itself — they are <em>not</em> added to your
+        personal library — and each lesson item links to one by matching its{" "}
+        <span className="text-[#78dce8]">type</span> and <span className="text-[#78dce8]">name</span>.
+        Tags on course content are not stored.
+      </p>
+      <CodeBlock
+        label="Copy Schema"
+        code={`{
+  "name": "Course Name",
+  "description": "Optional description",
+  "lessons": [
+    {
+      "title": "Lesson 1",
+      "description": "Optional lesson description",
+      "items": [
+        { "type": "deck", "name": "Deck Name" },
+        { "type": "quiz", "name": "Quiz Name", "requirementType": "min_score", "requirementValue": 80 },
+        { "type": "note", "name": "Note Name" }
+      ]
+    }
+  ],
+  "decks": [
+    { "name": "Deck Name", "description": null, "shuffleCards": false, "cards": [ /* see Deck schema */ ] }
+  ],
+  "quizzes": [
+    { "name": "Quiz Name", "description": null, "shuffleQuestions": false, "questions": [ /* see Quiz schema */ ] }
+  ],
+  "notes": [
+    { "name": "Note Name", "content": "Note body" }
+  ]
+}`}
+      />
+
+      <h4 className="text-md font-medium text-[#fcfcfa] mt-4 mb-2">Lesson Item Fields</h4>
+      <div className="overflow-x-auto mb-4">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-[#5b595c]">
+              <th className="text-left py-2 text-[#939293]">Field</th>
+              <th className="text-left py-2 text-[#939293]">Required</th>
+              <th className="text-left py-2 text-[#939293]">Description</th>
+            </tr>
+          </thead>
+          <tbody className="text-[#939293]">
+            <tr className="border-b border-[#5b595c]/50">
+              <td className="py-2 text-[#78dce8]">type</td>
+              <td>Yes</td>
+              <td>"deck", "quiz", or "note"</td>
+            </tr>
+            <tr className="border-b border-[#5b595c]/50">
+              <td className="py-2 text-[#78dce8]">name</td>
+              <td>Yes</td>
+              <td>Matches a decks/quizzes/notes entry to link it into the lesson</td>
+            </tr>
+            <tr className="border-b border-[#5b595c]/50">
+              <td className="py-2 text-[#78dce8]">requirementType</td>
+              <td>No</td>
+              <td>e.g. "min_score" to gate lesson completion on a quiz result</td>
+            </tr>
+            <tr>
+              <td className="py-2 text-[#78dce8]">requirementValue</td>
+              <td>No</td>
+              <td>Threshold for the requirement (e.g. 80 for 80%)</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
 
       <h4 className="text-md font-medium text-[#fcfcfa] mt-4 mb-2">Supported Languages</h4>
       <p className="text-[#939293] text-sm mb-2">
